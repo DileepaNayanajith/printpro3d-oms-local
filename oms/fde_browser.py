@@ -71,7 +71,7 @@ class FDEBrowser:
         city.press_sequentially(job['city'], delay=50)
         # Select exact destination, never the first similar city.
         option = self.page.locator('ul.ui-autocomplete:visible .ui-menu-item-wrapper').filter(
-            has_text=re.compile(r'^' + re.escape(job['city']) + r'$'))
+            has_text=re.compile(r'^' + re.escape(job['city'].strip()) + r'$', re.IGNORECASE))
         option.wait_for(state='visible')
         if option.count() != 1:
             raise FormMismatch('City is missing or ambiguous')
@@ -87,6 +87,8 @@ class FDEBrowser:
             actual = self.page.locator(selector).input_value()
             if selector == '#amount':
                 matches = Decimal(actual) == Decimal(expected)
+            elif selector == '#Rrcity':
+                matches = actual.strip().casefold() == expected.strip().casefold()
             else:
                 matches = actual == expected
             if not matches:

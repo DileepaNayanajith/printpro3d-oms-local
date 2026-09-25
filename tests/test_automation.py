@@ -44,6 +44,14 @@ class QueueTests(unittest.TestCase):
         browser.submit.assert_not_called()
         return browser
 
+    def test_tracking_entry_alone_cannot_mark_order_booked(self):
+        self.assertEqual(self.post('/orders/1/booking', {'tracking':'17778578'}).status_code,400)
+        self.assertEqual(jobs.snapshot(self.conn,1)['state'],'pending')
+        self.assertIsNone(self.conn.execute('SELECT tracking FROM orders WHERE id=1').fetchone()[0])
+        page=self.client.get('/orders/1').data
+        self.assertIn(b'FDE browser is offline',page)
+        self.assertIn(b'Fill FDE form automatically',page)
+
     def test_reservation_uniqueness_and_underweight(self):
         self.assertEqual(self.post('/orders/1/prepare',{'waybill_number':'17778578','weight_kg':'1'}).status_code,400)
         self.queue('CCP0017778578')
@@ -84,8 +92,8 @@ class QueueTests(unittest.TestCase):
         jobs.transition(self.conn,1,'prepared','approved','test approval')
         jobs.submit_one(self.conn,1,browser,True)
         self.assertEqual(jobs.snapshot(self.conn,1)['state'],'needs_review')
-        self.assertEqual(self.post('/orders/1/booking',{'tracking':'99999999'}).status_code,409)
-        self.assertEqual(self.post('/orders/1/booking',{'tracking':'CCP0017778578'}).status_code,302)
+        self.assertEqual(self.post('/orders/1/booking',{'record_checked':'yes','tracking':'99999999'}).status_code,409)
+        self.assertEqual(self.post('/orders/1/booking',{'record_checked':'yes','tracking':'CCP0017778578'}).status_code,302)
         self.assertEqual(jobs.snapshot(self.conn,1)['state'],'succeeded')
 
     def test_restart_does_not_requeue_uncertain_work(self):
@@ -120,7 +128,7 @@ class QueueTests(unittest.TestCase):
         browser.submit.assert_not_called()
 
     def test_booked_tracking_cannot_be_reserved_with_prefix_alias(self):
-        self.post('/orders/1/booking',{'tracking':'CCP17778578'})
+        self.post('/orders/1/booking',{'record_checked':'yes','tracking':'CCP17778578'})
         self.assertEqual(self.post('/orders/2/prepare',{'waybill_number':'17778578','weight_kg':'2'}).status_code,409)
 
     def test_packing_gets_orders_before_booking_but_cannot_submit(self):
@@ -169,6 +177,25 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(FormMismatch):
             adapter.prepare({'assigned_waybill':'17778578'})
         page.locator.assert_not_called()
+
+    def test_city_capitalization_does_not_reject_exact_destination(self):
+        page=Mock(url='https://www.fdedomestic.com/client/ccp_parcel_add.php')
+        adapter=FDEBrowser(page)
+        adapter.form_identity=Mock()
+        adapter.city_id=''
+        job=dict(quantity=1,product='Print',reference='PP3D-1',cod_cents=100,name='Test',phone='0771234567',address='Test',city='colombo 06',weight_kg=1)
+        values=field_values(job)
+        values.update({'#Rrcity':'Colombo 06','#RselectCityId':'','#ccpSecFrm select[name="weight"]':'1'})
+        def locator(selector):
+            result=Mock()
+            result.input_value.return_value=values.get(selector,'')
+            result.is_checked.return_value=False
+            return result
+        page.locator.side_effect=locator
+        adapter.verify(job)
+        values['#Rrcity']='Colombo 06 - Wellawatte & Pamankada'
+        with self.assertRaises(FormMismatch):
+            adapter.verify(job)
 
     def test_modified_or_unresolved_city_blocks_submit(self):
         page=Mock(url='https://www.fdedomestic.com/client/ccp_parcel_add.php')

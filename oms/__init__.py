@@ -320,6 +320,8 @@ def create_app(config=None):
     @role_required(admin=True)
     def booking(order_id):
         get_order(order_id)
+        if request.form.get('record_checked') != 'yes':
+            abort(400,'Confirm that the parcel is already booked in FDE. To fill FDE, use automatic form fill instead.')
         tracking = request.form.get('tracking','').strip()
         try:
             automation.confirm_booking(db(),order_id,tracking,session.get('username',session.get('role','local-demo')))

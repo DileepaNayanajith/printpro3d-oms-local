@@ -33,8 +33,8 @@ class Workflow(unittest.TestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM booking_jobs').fetchone()[0],1)
             self.assertEqual(db.execute('SELECT phone,cod_cents FROM leads').fetchone(),('0771234567',125050))
         self.assertEqual(self.post('/orders/1/pack').status_code,409)
-        self.assertEqual(self.post('/orders/1/booking',{'tracking':'TEST-1234'}).status_code,302)
-        self.assertEqual(self.post('/orders/1/booking',{'tracking':'TEST-1234'}).status_code,409)
+        self.assertEqual(self.post('/orders/1/booking',{'record_checked':'yes','tracking':'TEST-1234'}).status_code,302)
+        self.assertEqual(self.post('/orders/1/booking',{'record_checked':'yes','tracking':'TEST-1234'}).status_code,409)
         self.assertEqual(self.post('/orders/1/pack').status_code,409)
         self.assertEqual(self.post('/orders/1/waybill',{'waybill':(io.BytesIO(b'%PDF-1.4\n fixture'),'label.pdf')}).status_code,302)
         response = self.client.get('/orders/1/waybill')
@@ -66,12 +66,12 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.client.get('/packing').status_code,200)
         for path in ('/','/orders.csv','/orders/1','/leads/1'):
             self.assertEqual(self.client.get(path).status_code,403)
-        self.assertEqual(self.post('/orders/1/booking',{'tracking':'TEST-1234'}).status_code,403)
+        self.assertEqual(self.post('/orders/1/booking',{'record_checked':'yes','tracking':'TEST-1234'}).status_code,403)
 
     def test_unique_tracking_csv_escaping(self):
         self.qualify()
         self.post('/leads',dict(self.data,name='=DANGEROUS()'))
         self.post('/leads/2',dict(self.data,name='=DANGEROUS()',action='qualify'))
-        self.post('/orders/1/booking',{'tracking':'TEST-1234'})
-        self.assertEqual(self.post('/orders/2/booking',{'tracking':'TEST-1234'}).status_code,409)
+        self.post('/orders/1/booking',{'record_checked':'yes','tracking':'TEST-1234'})
+        self.assertEqual(self.post('/orders/2/booking',{'record_checked':'yes','tracking':'TEST-1234'}).status_code,409)
         self.assertIn(b"'=DANGEROUS()",self.client.get('/orders.csv').data)
