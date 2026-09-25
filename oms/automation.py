@@ -25,6 +25,7 @@ def migrate(conn):
     columns = {r[1] for r in conn.execute('PRAGMA table_info(booking_jobs)')}
     for name, kind in {
         'assigned_waybill': 'TEXT', 'weight_kg': 'INTEGER',
+        'packing_confirmed': 'INTEGER NOT NULL DEFAULT 0',
         'message': "TEXT NOT NULL DEFAULT ''", 'updated_at': 'INTEGER',
     }.items():
         if name not in columns:
@@ -77,7 +78,7 @@ def log(conn, order_id, actor, action):
     conn.execute('INSERT INTO events(order_id,actor,action) VALUES(?,?,?)', (order_id, actor, action))
 
 
-def reserve(conn, order_id, number, weight, actor):
+def reserve(conn, order_id, number, weight, actor, packing_confirmed=False):
     number = normalize_waybill(number)
     try:
         weight = int(weight)
@@ -98,11 +99,11 @@ def reserve(conn, order_id, number, weight, actor):
                 raise Conflict('That waybill is already attached to a confirmed order.')
         try:
             conn.execute("""UPDATE booking_jobs SET assigned_waybill=?,weight_kg=?,state='queued',
-              message='Waiting for the local FDE browser worker.',updated_at=? WHERE order_id=?""",
-                         (number, weight, int(time.time()), order_id))
+              message='Waiting for the local FDE browser worker.',packing_confirmed=?,updated_at=? WHERE order_id=?""",
+                         (number, weight, int(packing_confirmed), int(time.time()), order_id))
         except sqlite3.IntegrityError:
             raise Conflict('That waybill is reserved for another order.')
-        log(conn, order_id, actor, 'CCP waybill reserved; form preparation queued')
+        log(conn, order_id, actor, 'Packing confirmed; authorized one automatic FDE booking' if packing_confirmed else 'CCP waybill reserved; form preparation queued')
 
 
 def heartbeat(conn, enabled=False):
@@ -184,13 +185,19 @@ def submit_one(conn, order_id, browser, enabled=False):
         return
     # Commit BEFORE clicking. A crash/timeout cannot make this eligible for auto-retry.
     transition(conn, order_id, 'approved', 'submitting', 'One FDE submission attempt started')
+    confirmed = False
     try:
-        browser.submit()
+        confirmed = browser.submit()
     except Exception:
         message = 'Submission response uncertain. Search FDE before any retry; it may already be booked.'
     else:
         message = 'Submit clicked once. Confirm the FDE parcel record and tracking; automatic receipt detection is not commissioned.'
     transition(conn, order_id, 'submitting', 'needs_review', message)
+    if confirmed is True:
+        confirm_booking(conn, order_id, job['assigned_waybill'], 'browser-worker')
+        with conn:
+            conn.execute("UPDATE booking_jobs SET message='FDE confirmed: Add Successfully!' WHERE order_id=?", (order_id,))
+            log(conn, order_id, 'browser-worker', 'Observed fresh FDE success receipt after verified submission')
 
 
 def confirm_booking(conn, order_id, tracking, actor):
@@ -214,3 +221,30 @@ def confirm_booking(conn, order_id, tracking, actor):
             raise Conflict('This order is already booked.')
         conn.execute("UPDATE booking_jobs SET state='succeeded',message='FDE record manually verified.',updated_at=? WHERE order_id=?", (int(time.time()), order_id))
         log(conn, order_id, actor, 'FDE parcel and tracking manually reconciled')
+
+
+def confirm_packing(conn, order_id, number, weight, actor):
+    """Packing confirmation authorizes exactly one verified FDE submission."""
+    job = snapshot(conn, order_id)
+    if not job:
+        raise Conflict('Order not found.')
+    if job['state'] == 'pending':
+        reserve(conn, order_id, number, weight, actor, packing_confirmed=True)
+        return
+    with conn:
+        changed = conn.execute("""UPDATE booking_jobs SET packing_confirmed=1,
+          message='Packing confirmed. Automatic FDE booking queued.',updated_at=?
+          WHERE order_id=? AND state IN ('queued','prepared','login_required')
+          AND packing_confirmed=0""", (int(time.time()), order_id)).rowcount
+        if not changed:
+            raise Conflict('Already confirmed, or this booking needs attention before packing confirmation.')
+        log(conn, order_id, actor, 'Packing confirmed; authorized one automatic FDE booking')
+
+
+def submit_packed(conn, order_id, browser, enabled):
+    job = snapshot(conn, order_id)
+    if not enabled or not job['packing_confirmed'] or job['state'] != 'prepared':
+        return False
+    transition(conn, order_id, 'prepared', 'approved', 'Packing confirmation authorizes verified automatic submission')
+    submit_one(conn, order_id, browser, enabled=True)
+    return True

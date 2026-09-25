@@ -271,6 +271,19 @@ def create_app(config=None):
     def help_page():
         return render_template('help.html')
 
+    @app.post('/orders/<int:order_id>/confirm-packing')
+    @role_required()
+    def confirm_packing(order_id):
+        get_order(order_id)
+        try:
+            automation.confirm_packing(db(),order_id,request.form.get('waybill_number',''),
+                request.form.get('weight_kg',''),session.get('username',session.get('role','local-demo')))
+        except automation.Conflict as error:
+            abort(409,str(error))
+        except ValueError as error:
+            abort(400,str(error))
+        return redirect('/packing')
+
     @app.post('/orders/<int:order_id>/prepare')
     @role_required()
     def prepare(order_id):
@@ -368,7 +381,7 @@ def create_app(config=None):
             status='active'
         query=request.args.get('q','').strip()[:100]
         rows = db().execute('''SELECT o.*,l.name,l.product,l.quantity,l.notes,l.weight_g,
-          j.state AS job_state,j.assigned_waybill,j.weight_kg,j.message FROM orders o
+          j.state AS job_state,j.assigned_waybill,j.weight_kg,j.message,j.packing_confirmed FROM orders o
           JOIN leads l ON l.id=o.lead_id JOIN booking_jobs j ON j.order_id=o.id ORDER BY o.id''').fetchall()
         rows=[r for r in rows if (status=='all' or (status=='packed')==(r['status']=='packed')) and
               query.lower() in ' '.join(str(r[k] or '') for k in ('id','name','product','tracking','assigned_waybill')).lower()]

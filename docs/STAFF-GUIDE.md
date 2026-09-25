@@ -1,3 +1,17 @@
+# Current packing-to-FDE flow
+
+1. Caller saves a confirmed order.
+2. Packing checks the parcel, enters the CCP sticker and weight, and clicks **Confirm packing & book with FDE**.
+3. The worker fills and verifies the form, then submits once. No second approval is required.
+4. A fresh FDE **Success! / Add Successfully!** receipt marks the order booked with the assigned tracking number.
+5. Timeout, logout or an unexpected response requires attention; never submit the same parcel again without checking FDE.
+
+Run `start_fde.command` on the main computer and keep its browser open and signed in. This launcher enables submission for packing-confirmed orders. Preparation-only orders do not gain submission permission automatically. The official label PDF download/attachment remains manual.
+
+Live verification: on 26 September 2026, the owner confirmed order PP3D-000002 was packed and ready. Its CCP17778579 booking received the FDE success receipt. The updated automated receipt detector is covered by tests; do not create duplicate live bookings for testing.
+
+## Earlier pilot reference
+
 # PRINTPRO3D — staff pilot
 
 Use the staff link supplied by the owner while connected to the same trusted work Wi-Fi. The owner computer and both app/browser processes must stay running. This pilot uses HTTP on the local network; do not open router ports or share it over public Wi-Fi. Use an HTTPS gateway before internet access.

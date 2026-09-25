@@ -104,4 +104,13 @@ class FDEBrowser:
     def submit(self):
         # Caller has persisted submitting state and verified a per-order approval.
         self.check_origin()
+        # Reject a stale receipt before clicking; accept only the observed FDE
+        # success heading + message produced by this submission.
+        receipt = self.page.get_by_text('Add Successfully!', exact=True)
+        if receipt.is_visible():
+            raise FormMismatch('Previous receipt still visible')
         self.page.locator('#addCpParcel').click(no_wait_after=True)
+        receipt.wait_for(state='visible', timeout=30000)
+        self.check_origin()
+        self.page.get_by_role('heading', name='Success!', exact=True).wait_for(state='visible')
+        return True

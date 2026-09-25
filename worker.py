@@ -7,14 +7,14 @@ from pathlib import Path
 
 from oms import create_app
 from oms.automation import (connection, heartbeat, recover_interrupted, claim,
-                            prepare_one, submit_one, snapshot, transition)
+                            prepare_one, submit_one, submit_packed, snapshot, transition)
 from oms.fde_browser import FDEBrowser, PORTAL_URL
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--login', action='store_true', help='Wait for manual login, then run without restarting the browser')
-    parser.add_argument('--enable-submit', action='store_true', help='Allow one click ONLY after admin approves that prepared order in OMS')
+    parser.add_argument('--enable-submit', action='store_true', help='Allow one submission after packing confirmation or explicit order review')
     args = parser.parse_args()
     app = create_app()
     root = Path(app.instance_path)
@@ -39,7 +39,7 @@ def main():
             active = None
             with connection(app.config['DATABASE']) as conn:
                 recover_interrupted(conn)
-                print('FDE worker started. Live submit: ' + ('per-order approval required' if args.enable_submit else 'disabled'))
+                print('FDE worker started. Live submit: ' + ('packing confirmation or per-order review required' if args.enable_submit else 'disabled'))
                 try:
                     while True:
                         heartbeat(conn, args.enable_submit)
@@ -48,6 +48,8 @@ def main():
                             if job['state'] == 'login_required' and adapter.signed_in():
                                 transition(conn, active, 'login_required', 'queued', 'Login restored; resuming form preparation')
                                 active = None
+                            elif job['state'] == 'prepared' and job['packing_confirmed']:
+                                submit_packed(conn, active, adapter, args.enable_submit)
                             elif job['state'] == 'approved':
                                 submit_one(conn, active, adapter, args.enable_submit)
                             elif job['state'] == 'succeeded' or job['state'] == 'queued':

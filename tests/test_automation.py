@@ -52,6 +52,36 @@ class QueueTests(unittest.TestCase):
         self.assertIn(b'FDE browser is offline',page)
         self.assertIn(b'Fill FDE form automatically',page)
 
+    def test_packing_confirmation_submits_once_without_second_approval(self):
+        data={'waybill_number':'17778579','weight_kg':'2'}
+        self.assertEqual(self.post('/orders/1/confirm-packing',data).status_code,302)
+        self.assertEqual(self.post('/orders/1/confirm-packing',data).status_code,409)
+        self.assertEqual(jobs.claim(self.conn),1)
+        browser=Mock()
+        jobs.prepare_one(self.conn,1,browser)
+        self.assertFalse(jobs.submit_packed(self.conn,1,browser,False))
+        browser.submit.assert_not_called()
+        self.assertTrue(jobs.submit_packed(self.conn,1,browser,True))
+        self.assertFalse(jobs.submit_packed(self.conn,1,browser,True))
+        browser.submit.assert_called_once()
+        self.assertEqual(jobs.snapshot(self.conn,1)['state'],'needs_review')
+
+    def test_fresh_success_receipt_completes_booking(self):
+        self.post('/orders/1/confirm-packing',{'waybill_number':'17778579','weight_kg':'2'})
+        jobs.claim(self.conn)
+        browser=Mock()
+        browser.submit.return_value=True
+        jobs.prepare_one(self.conn,1,browser)
+        jobs.submit_packed(self.conn,1,browser,True)
+        self.assertEqual(jobs.snapshot(self.conn,1)['state'],'succeeded')
+        self.assertEqual(self.conn.execute('SELECT tracking FROM orders WHERE id=1').fetchone()[0],'17778579')
+        browser.submit.assert_called_once()
+
+    def test_preparation_only_never_gains_packing_authorization(self):
+        browser=self.prepared()
+        self.assertFalse(jobs.submit_packed(self.conn,1,browser,True))
+        browser.submit.assert_not_called()
+
     def test_reservation_uniqueness_and_underweight(self):
         self.assertEqual(self.post('/orders/1/prepare',{'waybill_number':'17778578','weight_kg':'1'}).status_code,400)
         self.queue('CCP0017778578')
@@ -132,7 +162,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.post('/orders/2/prepare',{'waybill_number':'17778578','weight_kg':'2'}).status_code,409)
 
     def test_packing_gets_orders_before_booking_but_cannot_submit(self):
-        self.assertIn(b'Assign sticker',self.client.get('/packing').data)
+        self.assertIn(b'Confirm packing &amp;',self.client.get('/packing').data.replace(b' & ',b' &amp; '))
         self.app.config.update(ADMIN_PASSWORD='admin',PACKER_PASSWORD='packer')
         self.post('/login',{'role':'packer','password':'packer'})
         with self.client.session_transaction() as session:
@@ -177,6 +207,18 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(FormMismatch):
             adapter.prepare({'assigned_waybill':'17778578'})
         page.locator.assert_not_called()
+
+    def test_submit_waits_for_observed_success_and_rejects_stale_receipt(self):
+        page=Mock(url='https://www.fdedomestic.com/client/ccp_parcel_add.php')
+        page.get_by_text.return_value.is_visible.return_value=False
+        adapter=FDEBrowser(page)
+        self.assertTrue(adapter.submit())
+        page.locator.return_value.click.assert_called_once()
+        page.get_by_text.return_value.wait_for.assert_called_once_with(state='visible',timeout=30000)
+        page.get_by_text.return_value.is_visible.return_value=True
+        with self.assertRaises(FormMismatch):
+            adapter.submit()
+        page.locator.return_value.click.assert_called_once()
 
     def test_city_capitalization_does_not_reject_exact_destination(self):
         page=Mock(url='https://www.fdedomestic.com/client/ccp_parcel_add.php')
