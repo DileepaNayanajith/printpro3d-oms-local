@@ -38,11 +38,9 @@ In another terminal in the same repository, using the same environment:
 python worker.py --login
 ```
 
-Sign into FDE yourself in the dedicated Chromium window. Press Enter in the terminal after login to save the session and close the login window. Then:
+Sign into FDE yourself in the dedicated Chromium window. Press Enter in the terminal after login to continue the worker in that SAME browser. Do not close/restart it after signing in: FDE uses a session that may not survive browser restarts.
 
-```sh
-python worker.py
-```
+You can also start `python worker.py` directly. If a queued order encounters the login page, it pauses as `login_required`; sign into that open worker window and preparation resumes automatically. No submit is attempted during this login recovery.
 
 The worker opens a visible browser and polls the shared queue. It fills one order and keeps the form open for review; later orders wait. The FDE login in Codex's in-app browser is separate and is not copied. No portal password is requested by or stored in application code. The persistent Chromium profile contains session credentials, so restrict its access and keep it out of Git.
 

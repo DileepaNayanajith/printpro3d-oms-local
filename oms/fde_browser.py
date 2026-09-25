@@ -13,6 +13,10 @@ class FormMismatch(RuntimeError):
     pass
 
 
+class SignInRequired(FormMismatch):
+    pass
+
+
 def field_values(job):
     return {
         '#pDesc': f"{job['quantity']} x {job['product']}",
@@ -30,8 +34,16 @@ class FDEBrowser:
 
     def check_origin(self):
         url = urlsplit(self.page.url)
+        if url.netloc == 'www.fdedomestic.com' and url.path == '/client/signIn.php':
+            raise SignInRequired('Sign in in the dedicated browser')
         if url.scheme != 'https' or url.netloc != 'www.fdedomestic.com' or url.path != '/client/ccp_parcel_add.php':
             raise FormMismatch('Expected logged-in CCP page')
+
+    def signed_in(self):
+        url = urlsplit(self.page.url)
+        return (url.scheme == 'https' and url.netloc == 'www.fdedomestic.com'
+                and url.path in ('/client/welcome.php','/client/index.php','/client/ccp_parcel_add.php')
+                and self.page.get_by_role('link', name=re.compile('Parcel Management')).count() == 1)
 
     def form_identity(self, job):
         self.check_origin()

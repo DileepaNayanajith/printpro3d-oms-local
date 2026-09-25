@@ -16,7 +16,7 @@ Default: staff review/submit in FDE and verify the parcel, then OMS records `suc
 
 Optional supervised submit: `prepared` → admin approval → `approved` → durable `submitting` → `needs_review` → manual parcel verification → `succeeded`.
 
-Preparation failures become `blocked`. Interrupted preparation/review/submission becomes `needs_review`, since staff might have interacted with the visible form. Only explicit operator reconciliation can requeue blocked/uncertain jobs. A worker lock prevents concurrent browser processes. Queue claim and submission-state writes are transactional and never keep the DB lock over a browser operation.
+A login redirect before form filling becomes `login_required`; it resumes after staff sign into the same browser. Other preparation failures become `blocked`. Interrupted preparation/review/submission becomes `needs_review`, since staff might have interacted with the visible form. Only explicit operator reconciliation can requeue blocked/uncertain jobs. A worker lock prevents concurrent browser processes. Queue claim and submission-state writes are transactional and never keep the DB lock over a browser operation.
 
 Prepared status means the form was filled/checked; it does not mean a parcel exists. A return from the Submit click is also not proof of success. Receipt recognition is deliberately deferred until a real controlled booking shows FDE's response and reconciliation behavior.
 

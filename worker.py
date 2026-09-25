@@ -7,13 +7,13 @@ from pathlib import Path
 
 from oms import create_app
 from oms.automation import (connection, heartbeat, recover_interrupted, claim,
-                            prepare_one, submit_one, snapshot)
+                            prepare_one, submit_one, snapshot, transition)
 from oms.fde_browser import FDEBrowser, PORTAL_URL
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--login', action='store_true', help='Open dedicated FDE profile for manual login only')
+    parser.add_argument('--login', action='store_true', help='Wait for manual login, then run without restarting the browser')
     parser.add_argument('--enable-submit', action='store_true', help='Allow one click ONLY after admin approves that prepared order in OMS')
     args = parser.parse_args()
     app = create_app()
@@ -34,9 +34,7 @@ def main():
             # This standalone profile does not borrow the Codex/browser login session.
             page.goto(PORTAL_URL)
             if args.login:
-                input('Sign in in the browser. After login, press Enter here to close and save the session. ')
-                browser.close()
-                return
+                input('Sign in in the browser, then press Enter here. This same browser will stay open for the worker. ')
             adapter = FDEBrowser(page)
             active = None
             with connection(app.config['DATABASE']) as conn:
@@ -47,15 +45,20 @@ def main():
                         heartbeat(conn, args.enable_submit)
                         if active is not None:
                             job = snapshot(conn, active)
-                            if job['state'] == 'approved':
+                            if job['state'] == 'login_required' and adapter.signed_in():
+                                transition(conn, active, 'login_required', 'queued', 'Login restored; resuming form preparation')
+                                active = None
+                            elif job['state'] == 'approved':
                                 submit_one(conn, active, adapter, args.enable_submit)
                             elif job['state'] == 'succeeded' or job['state'] == 'queued':
                                 active = None
                             # Keep current page visible for review or manual reconciliation.
                         else:
-                            active = claim(conn)
+                            waiting = conn.execute("SELECT order_id FROM booking_jobs WHERE state='login_required' ORDER BY order_id LIMIT 1").fetchone()
+                            active = waiting['order_id'] if waiting else claim(conn)
                             if active is not None:
-                                prepare_one(conn, active, adapter)
+                                if snapshot(conn,active)['state']=='preparing':
+                                    prepare_one(conn, active, adapter)
                         page.wait_for_timeout(1500)
                 except KeyboardInterrupt:
                     print('Worker stopped. Unfinished browser jobs require review on restart.')

@@ -3,6 +3,7 @@ import re
 import sqlite3
 import time
 from contextlib import contextmanager
+from .fde_browser import SignInRequired
 
 
 class Conflict(ValueError):
@@ -15,6 +16,7 @@ STATE_LABELS = {
     'approved': 'Approved for one submission', 'submitting': 'Submitting once',
     'needs_review': 'Check FDE before continuing', 'blocked': 'Needs attention',
     'succeeded': 'Booking confirmed',
+    'login_required': 'Sign into the worker browser',
 }
 
 
@@ -146,6 +148,10 @@ def prepare_one(conn, order_id, browser):
     job = snapshot(conn, order_id)
     try:
         browser.prepare(job)
+    except SignInRequired:
+        transition(conn, order_id, 'preparing', 'login_required',
+                   'Sign into the open worker browser. Preparation resumes after login; nothing has been submitted.')
+        return False
     except Exception:
         # Never persist raw browser errors: they can contain customer data or cookies.
         transition(conn, order_id, 'preparing', 'blocked',

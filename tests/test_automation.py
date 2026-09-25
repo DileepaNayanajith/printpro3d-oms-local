@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 from oms import create_app, SCHEMA
 from oms import automation as jobs
-from oms.fde_browser import FDEBrowser, FormMismatch, field_values
+from oms.fde_browser import FDEBrowser, FormMismatch, SignInRequired, field_values
 
 
 class QueueTests(unittest.TestCase):
@@ -105,6 +105,18 @@ class QueueTests(unittest.TestCase):
         row=jobs.snapshot(self.conn,1)
         self.assertEqual(row['state'],'blocked')
         self.assertNotIn('PRIVATE',row['message'])
+        browser.submit.assert_not_called()
+
+    def test_expired_login_pauses_before_any_submit(self):
+        self.queue()
+        jobs.claim(self.conn)
+        browser=Mock()
+        browser.prepare.side_effect=SignInRequired('login required')
+        self.assertFalse(jobs.prepare_one(self.conn,1,browser))
+        self.assertEqual(jobs.snapshot(self.conn,1)['state'],'login_required')
+        self.assertIsNone(jobs.claim(self.conn))
+        jobs.recover_interrupted(self.conn)
+        self.assertEqual(jobs.snapshot(self.conn,1)['state'],'login_required')
         browser.submit.assert_not_called()
 
     def test_booked_tracking_cannot_be_reserved_with_prefix_alias(self):
