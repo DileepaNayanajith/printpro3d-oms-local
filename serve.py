@@ -2,7 +2,7 @@
 import argparse
 import ipaddress
 import sqlite3
-from gunicorn.app.base import BaseApplication
+from waitress import serve
 from oms import create_app
 
 
@@ -20,18 +20,11 @@ def main():
     if not address.is_loopback and not count:
         raise SystemExit('Create staff accounts first: python manage.py bootstrap')
 
-    class Server(BaseApplication):
-        def load_config(self):
-            bindings=[f'{args.host}:{args.port}']
-            if not address.is_loopback:
-                bindings.append(f'127.0.0.1:{args.port}')
-            self.cfg.set('bind',bindings)
-            self.cfg.set('workers',1)
-            self.cfg.set('threads',4)
-            self.cfg.set('accesslog',None)
-        def load(self):
-            return app
-    Server().run()
+    bindings=[f'{args.host}:{args.port}']
+    if not address.is_loopback:
+        bindings.append(f'127.0.0.1:{args.port}')
+    serve(app, listen=' '.join(bindings), threads=4)
+
 
 
 if __name__=='__main__':

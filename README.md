@@ -83,7 +83,7 @@ The worker persists `submitting` before clicking. Whether the click returns or t
 
 Start with one persistent macOS/Linux machine running both the app and a visible browser worker. It must stay on while processing orders. A production server will need a managed graphical session for the current headed worker; unattended headless operation is not commissioned.
 
-For access from both sites, use HTTPS reverse proxy and a private access gateway with MFA/rate limiting. Configure stable `OMS_SECRET`, strong distinct `OMS_ADMIN_PASSWORD` and `OMS_PACKER_PASSWORD`, and `OMS_HTTPS=1`. Run Flask under `gunicorn --workers 1 --bind 127.0.0.1:5055 run:app`. Never expose the development server or use ephemeral storage. Named staff accounts store hashed passwords and record usernames in new activity entries. The legacy station-password mode is only used when there are no named accounts.
+For access from both sites, use HTTPS reverse proxy and a private access gateway with MFA/rate limiting. Configure stable `OMS_SECRET`, strong distinct `OMS_ADMIN_PASSWORD` and `OMS_PACKER_PASSWORD`, and `OMS_HTTPS=1`. Run Flask under `python serve.py`. Never expose the development server or use ephemeral storage. Named staff accounts store hashed passwords and record usernames in new activity entries. The legacy station-password mode is only used when there are no named accounts.
 
 Back up SQLite with its backup API, or stop both app and worker before copying database/PDF files. Encrypt backups and test restore. Do not routinely copy the authenticated browser profile into backups; re-login after restore. Agree customer-data retention before live use.
 
