@@ -70,3 +70,7 @@ Observed `#ccpSecFrm` fields: `select[name="weight"]` with `1kg` / value `1` etc
 Typing a city using keyboard events produces `ul.ui-autocomplete` suggestions with `.ui-menu-item-wrapper` labels. Exact Colombo selection was observed. The hidden `#RselectCityId` remained blank after selection; the live region announced a numeric option value. The adapter uses the exact visible suggestion and preserves the hidden field as the portal sets it; it does not inject a guessed ID. Final submission semantics remain unverified.
 
 `worker.py`, `oms/automation.py` and `oms/fde_browser.py` implement supervised preparation and optional one-click submission after per-order admin approval. Default is prepare-only. Browser failures are tested through mocks, not live parcel creation. Automatic receipt recognition and label download remain unimplemented until commissioning. Official automation API reference: https://playwright.dev/python/docs/input and https://playwright.dev/python/docs/auth.
+
+## Live auto-fill verification
+
+The dedicated signed-in worker successfully prepared the user-supplied existing CCP waybill using clearly marked TEST ONLY data. Native browser inspection confirmed the product description, OMS reference, recipient fields, selected Colombo city, 1kg band and LKR 1000.00 amount. The local job reached `prepared`. The Submit button was not clicked. This verifies live form preparation, not booking creation, success detection or label printing. The sample is awaiting review and must not be dispatched.
