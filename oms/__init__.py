@@ -10,6 +10,7 @@ from pathlib import Path
 from functools import wraps
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file
+from . import automation
 
 
 SCHEMA = '''
@@ -44,6 +45,7 @@ def create_app(config=None):
                       DATABASE=str(Path(app.instance_path) / 'oms.sqlite3'),
                       ADMIN_PASSWORD=os.environ.get('OMS_ADMIN_PASSWORD'),
                       PACKER_PASSWORD=os.environ.get('OMS_PACKER_PASSWORD'),
+                      ENABLE_LIVE_BOOKING=os.environ.get('OMS_ENABLE_LIVE_BOOKING') == '1',
                       MAX_CONTENT_LENGTH=5 * 1024 * 1024,
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict',
                       SESSION_COOKIE_SECURE=os.environ.get('OMS_HTTPS') == '1')
@@ -67,6 +69,11 @@ def create_app(config=None):
     with app.app_context():
         db().executescript(SCHEMA)
         db().execute('PRAGMA journal_mode=WAL')
+        automation.migrate(db())
+
+    @app.context_processor
+    def automation_context():
+        return {'job_labels': automation.STATE_LABELS, 'worker': automation.worker_status(db())}
 
     def event(order_id, action):
         db().execute('INSERT INTO events(order_id,actor,action) VALUES(?,?,?)',
@@ -194,7 +201,56 @@ def create_app(config=None):
     @role_required(admin=True)
     def order(order_id):
         row = get_order(order_id)
-        return render_template('order.html', order=row, events=db().execute('SELECT * FROM events WHERE order_id=? ORDER BY id',(order_id,)).fetchall())
+        return render_template('order.html', order=row,
+                               job=db().execute('SELECT * FROM booking_jobs WHERE order_id=?',(order_id,)).fetchone(),
+                               events=db().execute('SELECT * FROM events WHERE order_id=? ORDER BY id',(order_id,)).fetchall())
+
+    @app.get('/courier')
+    @role_required(admin=True)
+    def courier_queue():
+        jobs = db().execute('''SELECT j.*,l.name,l.city,l.product,l.quantity,o.status AS order_status
+          FROM booking_jobs j JOIN orders o ON o.id=j.order_id JOIN leads l ON l.id=o.lead_id
+          ORDER BY CASE WHEN j.state='succeeded' THEN 1 ELSE 0 END,j.order_id''').fetchall()
+        return render_template('courier.html',jobs=jobs)
+
+    @app.post('/orders/<int:order_id>/prepare')
+    @role_required()
+    def prepare(order_id):
+        get_order(order_id)
+        try:
+            automation.reserve(db(),order_id,request.form.get('waybill_number',''),
+                               request.form.get('weight_kg',''),session.get('role','local-demo'))
+        except automation.Conflict as error:
+            abort(409,str(error))
+        except ValueError as error:
+            abort(400,str(error))
+        return redirect('/packing' if session.get('role')=='packer' else url_for('order',order_id=order_id))
+
+    @app.post('/orders/<int:order_id>/approve-submit')
+    @role_required(admin=True)
+    def approve_submit(order_id):
+        if not app.config['ENABLE_LIVE_BOOKING'] or not automation.worker_status(db())['submit_enabled']:
+            abort(409,'Live submission is disabled or the browser worker is offline.')
+        if request.form.get('reviewed') != 'yes':
+            abort(400,'Review the exact FDE form and confirm before sending.')
+        try:
+            automation.transition(db(),order_id,'prepared','approved','Caller approved one submission of the reviewed FDE form',session.get('role','local-demo'))
+        except automation.Conflict as error:
+            abort(409,str(error))
+        return redirect(url_for('order',order_id=order_id))
+
+    @app.post('/orders/<int:order_id>/retry-prepare')
+    @role_required(admin=True)
+    def retry_prepare(order_id):
+        if request.form.get('not_created') != 'yes':
+            abort(400,'First check FDE and confirm this waybill/order has not been booked.')
+        with db():
+            changed = db().execute("""UPDATE booking_jobs SET state='queued',message='Requeued after operator verified no FDE booking.'
+              WHERE order_id=? AND state IN ('blocked','needs_review') AND assigned_waybill IS NOT NULL""",(order_id,)).rowcount
+            if not changed:
+                abort(409,'This job cannot be retried in its current state.')
+            event(order_id,'operator checked FDE: no parcel created; preparation requeued')
+        return redirect(url_for('order',order_id=order_id))
 
     def get_order(order_id):
         row = db().execute('SELECT l.*,o.id AS order_id,o.status AS order_status,o.tracking,o.waybill FROM orders o JOIN leads l ON l.id=o.lead_id WHERE o.id=?',(order_id,)).fetchone()
@@ -207,15 +263,12 @@ def create_app(config=None):
     def booking(order_id):
         get_order(order_id)
         tracking = request.form.get('tracking','').strip()
-        if not re.fullmatch(r'[A-Za-z0-9-]{4,64}', tracking):
-            abort(400, 'Enter the tracking number confirmed by FDE.')
         try:
-            with db():
-                changed = db().execute("UPDATE orders SET tracking=?,status='booked' WHERE id=? AND status='awaiting_booking'",(tracking,order_id)).rowcount
-                if not changed:
-                    abort(409, 'This order is already booked. Refresh the page.')
-                db().execute("UPDATE booking_jobs SET state='succeeded' WHERE order_id=?",(order_id,))
-                event(order_id,'FDE booking manually reconciled')
+            automation.confirm_booking(db(),order_id,tracking,session.get('role','local-demo'))
+        except automation.Conflict as error:
+            abort(409,str(error))
+        except ValueError as error:
+            abort(400,str(error))
         except sqlite3.IntegrityError:
             abort(409, 'That tracking number belongs to another order.')
         return redirect(url_for('order',order_id=order_id))
@@ -250,7 +303,9 @@ def create_app(config=None):
     @app.get('/packing')
     @role_required()
     def packing():
-        rows = db().execute("SELECT o.*, l.name,l.product,l.quantity,l.notes FROM orders o JOIN leads l ON l.id=o.lead_id WHERE o.status IN ('booked','packed') ORDER BY o.id").fetchall()
+        rows = db().execute('''SELECT o.*,l.name,l.product,l.quantity,l.notes,l.weight_g,
+          j.state AS job_state,j.assigned_waybill,j.weight_kg,j.message FROM orders o
+          JOIN leads l ON l.id=o.lead_id JOIN booking_jobs j ON j.order_id=o.id ORDER BY o.id''').fetchall()
         return render_template('packing.html',orders=rows)
 
     @app.post('/orders/<int:order_id>/pack')
