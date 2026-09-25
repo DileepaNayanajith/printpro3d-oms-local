@@ -1,0 +1,7 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {"name": "OMS web app", "type": "debugpy", "request": "launch", "program": "${workspaceFolder}/run.py", "console": "integratedTerminal", "justMyCode": true},
+    {"name": "FDE worker (fill only)", "type": "debugpy", "request": "launch", "program": "${workspaceFolder}/worker.py", "args": ["--login"], "console": "integratedTerminal", "justMyCode": true}
+  ]
+}

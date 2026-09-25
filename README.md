@@ -16,6 +16,12 @@ The app and browser-worker implementation are ready for a supervised local pilot
 
 An LLM is not needed for each booking: field values come directly from the confirmed order. Browser automation does the repetitive form work, with exact destination selection and value checks. No per-order AI subscription is required by this implementation.
 
+## Staff use on the same Wi-Fi
+
+See [staff guide](docs/STAFF-GUIDE.md) and [learn in VS Code](docs/LEARNING.md). On a fresh install, run `python manage.py bootstrap` once to create owner/caller01/packing01 accounts; private passwords are written to ignored `instance/staff-access.txt`. Named accounts disable shared station-password login. To add individual staff: `python manage.py add-user username --role caller` (or `packer`).
+
+Start `python serve.py --host YOUR_PRIVATE_WIFI_IP`, or double-click `start_staff.command` on macOS. Workers open the displayed link on the same trusted Wi-Fi. Local HTTP is for this trusted-network pilot only; do not expose it to the internet. Use `start_fde.command` for the separate fill-only worker.
+
 ## Start the app
 
 Python 3.9+ on macOS/Linux:
@@ -77,7 +83,7 @@ The worker persists `submitting` before clicking. Whether the click returns or t
 
 Start with one persistent macOS/Linux machine running both the app and a visible browser worker. It must stay on while processing orders. A production server will need a managed graphical session for the current headed worker; unattended headless operation is not commissioned.
 
-For access from both sites, use HTTPS reverse proxy and a private access gateway with MFA/rate limiting. Configure stable `OMS_SECRET`, strong distinct `OMS_ADMIN_PASSWORD` and `OMS_PACKER_PASSWORD`, and `OMS_HTTPS=1`. Run Flask under `gunicorn --workers 1 --bind 127.0.0.1:5055 run:app`. Never expose the development server or use ephemeral storage. Role passwords are for a small pilot; add named users if individual audit is needed.
+For access from both sites, use HTTPS reverse proxy and a private access gateway with MFA/rate limiting. Configure stable `OMS_SECRET`, strong distinct `OMS_ADMIN_PASSWORD` and `OMS_PACKER_PASSWORD`, and `OMS_HTTPS=1`. Run Flask under `gunicorn --workers 1 --bind 127.0.0.1:5055 run:app`. Never expose the development server or use ephemeral storage. Named staff accounts store hashed passwords and record usernames in new activity entries. The legacy station-password mode is only used when there are no named accounts.
 
 Back up SQLite with its backup API, or stop both app and worker before copying database/PDF files. Encrypt backups and test restore. Do not routinely copy the authenticated browser profile into backups; re-login after restore. Agree customer-data retention before live use.
 
@@ -92,4 +98,4 @@ Back up SQLite with its backup API, or stop both app and worker before copying d
 - `docs/FDE-INTEGRATION.md`: inspection evidence and remaining commissioning work.
 - `instance/`: private runtime data/profile/browser binaries, ignored by Git.
 
-A local Git repository has been created. No remote GitHub repository or hosted service has been provisioned.
+The private GitHub repository contains code only. The staff pilot runs on the owner computer; no internet-hosted service has been provisioned.

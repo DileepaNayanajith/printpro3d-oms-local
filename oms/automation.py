@@ -30,6 +30,15 @@ def migrate(conn):
         if name not in columns:
             conn.execute(f'ALTER TABLE booking_jobs ADD COLUMN {name} {kind}')
     conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS assigned_waybill_unique ON booking_jobs(assigned_waybill)')
+    lead_columns = {r[1] for r in conn.execute('PRAGMA table_info(leads)')}
+    if 'intake_key' not in lead_columns:
+        conn.execute('ALTER TABLE leads ADD COLUMN intake_key TEXT')
+    conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS intake_key_unique ON leads(intake_key)')
+    conn.execute('''CREATE TABLE IF NOT EXISTS users (
+      username TEXT PRIMARY KEY, password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('admin','caller','packer')),
+      active INTEGER NOT NULL DEFAULT 1
+    )''')
     conn.execute('''CREATE TABLE IF NOT EXISTS browser_worker (
         id INTEGER PRIMARY KEY CHECK(id=1), heartbeat INTEGER NOT NULL,
         submit_enabled INTEGER NOT NULL DEFAULT 0
