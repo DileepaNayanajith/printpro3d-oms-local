@@ -1,25 +1,50 @@
 # FDE findings — 25 September 2026
 
-| Path | Evidence | Conclusion |
+## Authenticated inspection
+
+The user signed into FDE and authorized read-only inspection. No booking, upload, print job, account change or customer-data submission was made.
+
+| Path | Verified observation | Decision |
 |---|---|---|
-| API | Official Shopify-app privacy policy mentions Parcel Add API, client ID and API key. | Prefer API, subject to merchant access and verified contract. |
-| API contract | No verified public endpoint/auth/response specification obtained. | Do not guess endpoints from policy fields. |
-| Portal | Requested booking page redirected to `client/signIn.php#you_must_login_first` in browser. | Booking form, label controls and import menus remain uninspected without login. |
-| CSV/Excel | Targeted official-site searches found no public import specification. | Unconfirmed, not absent. |
-| Browser fallback | Sign-in page verified; booking controls not accessible. | Design only until authenticated inspection. |
+| API → New Parcel | “Sorry! You are not eligible to this feature.” | Unavailable to this account now; request enablement from FDE. |
+| API → Existing Waybill | Same eligibility message. | Do not bypass the restriction or guess API endpoints. |
+| Existing CCP / CRE Parcel | Requires Waybill ID and a Go button. Instructions say enter only digits for CCP stickers. | Existing sticker number is an input, not necessarily an automatically generated output. No number entered during inspection. |
+| New Parcel | Accessible form with weight, description, order ID, amount, exchange, recipient name, two contacts, address and city. | Candidate alternative; success, tracking allocation and label availability untested because no live submission was made. |
+| Waybill Upload | CSV picker, Upload button, official template; states “allows only CRE & CCP waybills”. | Strongest current candidate for existing sticker workflow. Import semantics still require a controlled trial. |
+| Waybill Download | Generate Date filter and Search button. | Page exists; download contents were not tested. |
+| Label Print | Date, From/To time, status filter, Print and 10x10 Print buttons. | Batch label UI confirmed. Actual output, units/layout and PDF export remain untested. |
 
-Primary sources:
-- https://www.fdedomestic.com/fardar_express_app_privacy_policy.php
+### Official CSV template
+
+Downloaded the blank template linked by the authenticated upload page. Preserved unchanged in `docs/fde-waybill-upload-template.csv`:
+
+```text
+Waybill ID,Order ID,Parcel Type,Parcel Description,Recipient Name,Recipient Mobile,Recipient Mobile,Recipient Address,Recipient City,COD Amount,Exchange (0 or 1)
+```
+
+Both contact columns have the identical header `Recipient Mobile`; mapping must be positional. There is no weight column in this template. Accepted Parcel Type values, full-prefix vs digits-only Waybill ID format for CSV, city validation, encoding, blank second-phone handling, charges/weight defaults, duplicate behavior and partial-failure results are not documented in the downloaded file. Do not infer CSV rules from the single-parcel form's CCP digit-only instruction.
+
+### Recommendation for PRINTPRO3D
+
+Caller continues qualifying in Meta Business Suite, then types shipment details into OMS for now; Meta syncing is deferred. For the existing CCP workflow, packing scans or enters the assigned physical sticker number once, OMS reserves that exact number for that order, and a single browser worker uploads an OMS-generated FDE CSV. Initially use one-row batches to verify behavior; use larger batches only after per-row reconciliation is reliable. Generate CSV deterministically, not through an AI model deciding field values on every run.
+
+The worker must confirm imported records and match order reference/waybill before declaring success, then use FDE's official label UI. Automating the portal upload still removes retyping. A scanner or a verified preloaded inventory of unused waybill numbers is needed to remove manual waybill entry. Never invent/guess numbers or allocate the same sticker twice.
+
+If FDE confirms New Parcel creates usable digital waybills for this account, that route could eliminate the physical-sticker inventory step. Opening the form alone does not establish this. API enablement remains the preferable longer-term integration.
+
+### Next validation inputs
+
+Confirm whether packing uses preprinted CCP/CRE stickers and whether the user wants to retain them. Obtain an unused assigned waybill for a user-authorized controlled booking, or a FDE sandbox, before testing write behavior. Confirm the CSV fields above and verify a real official label against the actual printer. No permission for a real booking is implied by portal-inspection authorization.
+
+Sources inspected:
+- https://www.fdedomestic.com/client/new_api_doc.php
+- https://www.fdedomestic.com/client/existing_waybill_api_doc.php
 - https://www.fdedomestic.com/client/ccp_parcel_add.php
-- https://www.fdedomestic.com/
-
-The policy lists recipient details, parcel weight/description, COD, order reference and waybill identifier. It does not establish units, endpoint contracts or tracking allocation. In particular, PRINTPRO3D may use preallocated tracking numbers; do not assume booking allocates them.
-
-## Obtain from FDE
-
-Merchant API access, current documentation and sandbox examples; authentication, city IDs, weight units, COD/delivery-charge semantics, tracking allocation or preallocated ranges, lookup by reference, idempotency, PDF/barcode format, rate limits, cancellation and status lookup/webhooks. If API access is unavailable, ask for the bulk import template and per-row result export, then whether portal automation is supported.
-
-No contact message, credentials, customer data or booking was submitted during investigation.
+- https://www.fdedomestic.com/client/new_parcel_add.php
+- https://www.fdedomestic.com/client/waybill_upload.php
+- https://www.fdedomestic.com/admin/assets/images/default/waybill_upload_template.csv
+- https://www.fdedomestic.com/client/waybill_download.php
+- https://www.fdedomestic.com/client/label_print.php
 
 ## Safe integration sequence
 

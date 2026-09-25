@@ -27,7 +27,7 @@ Open http://127.0.0.1:5055. Unconfigured mode is a loopback-only demo. Test with
 
 ## Deliberately not connected
 
-Facebook ingestion, automatic FDE booking/tracking retrieval, status sync, automatic PDF retrieval and unattended printing. The provider interface fails closed; the database booking queue has no worker yet. Do not mistake the scaffold for a working courier integration. See [FDE findings](docs/FDE-INTEGRATION.md) and [architecture](docs/ARCHITECTURE.md).
+Facebook ingestion, automatic FDE booking/tracking retrieval, status sync, automatic PDF retrieval and unattended printing. The provider interface fails closed; the database booking queue has no worker yet. Do not mistake the scaffold for a working courier integration. Authenticated inspection confirmed a CCP/CRE CSV upload and label-print UI; API pages deny this account access. The official blank template is saved under `docs/`; CSV field semantics and submission/printing still need a controlled trial. See [FDE findings](docs/FDE-INTEGRATION.md) and [architecture](docs/ARCHITECTURE.md).
 
 Upload only official FDE PDFs. The app checks PDF file signature, not label contents; operator must match tracking and recipient. It never invents courier labels or barcodes. One product/variant line per order initially; custom specifications go in notes. Qualified shipment data is frozen; a post-booking edit/cancel workflow is not implemented.
 
