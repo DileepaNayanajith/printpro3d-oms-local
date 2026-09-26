@@ -11,7 +11,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels
+from . import automation, labels, sms
 
 
 SCHEMA = '''
@@ -82,6 +82,7 @@ def create_app(config=None):
         db().execute('PRAGMA journal_mode=WAL')
         automation.migrate(db())
         labels.migrate(db())
+        sms.migrate(db())
 
     @app.context_processor
     def automation_context():
@@ -219,6 +220,7 @@ def create_app(config=None):
                 order_id=db().execute('INSERT INTO orders(lead_id) VALUES(?)',(cur.lastrowid,)).lastrowid
                 db().execute('INSERT INTO booking_jobs(order_id,reference) VALUES(?,?)',(order_id,f'PP3D-{order_id:06d}'))
                 labels.enqueue(db(),order_id)
+                sms.queue(db(),order_id,'processing')
                 event(order_id,'caller saved confirmed Meta order; label ready for batch printing')
                 return redirect(url_for('index',saved=order_id) if request.form.get('return_to')=='desk' else url_for('order',order_id=order_id))
         return redirect(url_for('lead', lead_id=cur.lastrowid))
@@ -248,6 +250,7 @@ def create_app(config=None):
                     order_id = db().execute('INSERT INTO orders(lead_id) VALUES(?)',(lead_id,)).lastrowid
                     db().execute('INSERT INTO booking_jobs(order_id,reference) VALUES(?,?)',(order_id,f'PP3D-{order_id:06d}'))
                     labels.enqueue(db(),order_id)
+                    sms.queue(db(),order_id,'processing')
                     event(order_id,'qualified; label ready for batch printing')
             return redirect('/')
         duplicate = db().execute('SELECT id FROM leads WHERE phone=? AND id!=?', (row['phone'],lead_id)).fetchall()
@@ -457,13 +460,13 @@ def create_app(config=None):
     @role_required()
     def packing():
         status=request.args.get('status','active')
-        if status not in ('active','packed','all'):
+        if status not in ('active','packed','dispatched','all'):
             status='active'
         query=request.args.get('q','').strip()[:100]
         rows = db().execute('''SELECT o.*,l.name,l.product,l.quantity,l.notes,l.weight_g,
           j.state AS job_state,j.assigned_waybill,j.weight_kg,j.message,j.packing_confirmed FROM orders o
           JOIN leads l ON l.id=o.lead_id JOIN booking_jobs j ON j.order_id=o.id ORDER BY o.id''').fetchall()
-        rows=[r for r in rows if (status=='all' or (status=='packed')==(r['status']=='packed')) and
+        rows=[r for r in rows if (status=='all' or (status=='active' and r['status'] not in ('packed','dispatched')) or r['status']==status) and
               query.lower() in ' '.join(str(r[k] or '') for k in ('id','name','product','tracking','assigned_waybill')).lower()]
         return render_template('packing.html',orders=rows,q=query,selected_status=status)
 
@@ -476,6 +479,22 @@ def create_app(config=None):
                 abort(409,'Packing requires a booked order and a printed parcel label.')
             event(order_id,'packed')
         return redirect('/packing')
+
+    @app.post('/orders/<int:order_id>/dispatch')
+    @role_required()
+    def dispatch(order_id):
+        with db():
+            changed=db().execute("UPDATE orders SET status='dispatched' WHERE id=? AND status='packed' AND tracking IS NOT NULL",(order_id,)).rowcount
+            if not changed:abort(409,'Only a packed, booked parcel can be handed to the courier.')
+            sms.queue(db(),order_id,'dispatched')
+            event(order_id,'Staff confirmed parcel handed to FDE; dispatch SMS prepared')
+        return redirect('/packing?status=packed')
+
+    @app.get('/sms')
+    @role_required(admin=True)
+    def sms_queue():
+        rows=db().execute('SELECT * FROM sms_outbox ORDER BY id DESC LIMIT 100').fetchall()
+        return render_template('sms.html',messages=rows)
 
     @app.get('/orders.csv')
     @role_required(admin=True)

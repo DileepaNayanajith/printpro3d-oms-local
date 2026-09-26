@@ -20,3 +20,7 @@ The ignored `instance/printing.json` contains the selected printer and sender de
 FDE timeouts or unexpected responses require reconciliation before retrying. The worker accepts only the observed fresh “Success!” / “Add Successfully!” response as booking success. A real authorized order CCP17778579 was successfully submitted on 26 September 2026; do not use it for repeat submission tests.
 
 The template is the user's parcel label, not an automatically downloaded official FDE PDF. Official PDFs can still be attached separately if needed. Actual USB-scanner operation and physical paper output must be verified on the user's hardware.
+
+## Customer SMS setup pending
+
+New confirmed orders prepare one processing message. Once a packed parcel is actually handed to FDE, **Handed to courier · mark dispatched** prepares a second message with its tracking number. Booking a parcel alone does not claim it has been dispatched. The SMS page shows prepared messages and invalid mobile numbers. No SMS transport or provider is configured yet, so nothing is sent. Do not release held setup messages retroactively without checking their age and current order status when activating a provider. Provider credentials belong in ignored local settings, never Git or chat.
