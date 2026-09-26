@@ -11,7 +11,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file
-from . import automation
+from . import automation, labels
 
 
 SCHEMA = '''
@@ -81,11 +81,12 @@ def create_app(config=None):
         db().executescript(SCHEMA)
         db().execute('PRAGMA journal_mode=WAL')
         automation.migrate(db())
+        labels.migrate(db())
 
     @app.context_processor
     def automation_context():
         return {'job_labels': automation.STATE_LABELS, 'worker': automation.worker_status(db()),
-                'named_users':has_users(), 'new_intake_key':lambda:secrets.token_urlsafe(24)}
+                'print_state':lambda oid:db().execute('SELECT * FROM print_jobs WHERE order_id=?',(oid,)).fetchone(), 'named_users':has_users(), 'new_intake_key':lambda:secrets.token_urlsafe(24)}
 
     def has_users():
         return db().execute('SELECT 1 FROM users LIMIT 1').fetchone() is not None
@@ -217,7 +218,8 @@ def create_app(config=None):
             if confirm:
                 order_id=db().execute('INSERT INTO orders(lead_id) VALUES(?)',(cur.lastrowid,)).lastrowid
                 db().execute('INSERT INTO booking_jobs(order_id,reference) VALUES(?,?)',(order_id,f'PP3D-{order_id:06d}'))
-                event(order_id,'caller saved confirmed Meta order; ready for packing')
+                labels.enqueue(db(),order_id)
+                event(order_id,'caller saved confirmed Meta order; label queued for printing')
                 return redirect(url_for('order',order_id=order_id))
         return redirect(url_for('lead', lead_id=cur.lastrowid))
 
@@ -245,7 +247,8 @@ def create_app(config=None):
                 if action == 'qualify':
                     order_id = db().execute('INSERT INTO orders(lead_id) VALUES(?)',(lead_id,)).lastrowid
                     db().execute('INSERT INTO booking_jobs(order_id,reference) VALUES(?,?)',(order_id,f'PP3D-{order_id:06d}'))
-                    event(order_id,'qualified; booking queued')
+                    labels.enqueue(db(),order_id)
+                    event(order_id,'qualified; label queued for printing')
             return redirect('/')
         duplicate = db().execute('SELECT id FROM leads WHERE phone=? AND id!=?', (row['phone'],lead_id)).fetchall()
         return render_template('lead.html', lead=row, duplicates=duplicate)
@@ -270,6 +273,53 @@ def create_app(config=None):
     @role_required()
     def help_page():
         return render_template('help.html')
+
+    @app.route('/scan', methods=['GET','POST'])
+    @role_required()
+    def scan():
+        if request.method == 'POST':
+            reference=request.form.get('reference','').strip().upper()
+            if not re.fullmatch(r'PP3D-[0-9]{6,}',reference):
+                abort(400,'Scan the OMS order barcode first (PP3D-000001).')
+            order_id=int(reference.split('-')[1])
+            row=get_order(order_id)
+            printed=db().execute("SELECT state FROM print_jobs WHERE order_id=?",(order_id,)).fetchone()
+            if not printed or printed['state']!='spooled':
+                abort(409,'Print this order label first, then scan its order barcode and courier sticker.')
+            try:
+                automation.reserve(db(),order_id,request.form.get('waybill_number',''),
+                    (row['weight_g']+999)//1000,session.get('username',session.get('role','local-demo')),packing_confirmed=True)
+                with db():event(order_id,'Printed label and courier sticker scanned; automatic FDE submission authorized')
+            except automation.Conflict as error:abort(409,str(error))
+            except ValueError as error:abort(400,str(error))
+            return redirect(url_for('scan',sent=order_id))
+        rows=db().execute("""SELECT o.id,l.name,l.product,p.state,p.message FROM orders o
+          JOIN leads l ON l.id=o.lead_id JOIN print_jobs p ON p.order_id=o.id
+          JOIN booking_jobs j ON j.order_id=o.id WHERE j.state='pending' ORDER BY o.id""").fetchall()
+        return render_template('scan.html',orders=rows,sent=request.args.get('sent'))
+
+    @app.get('/orders/<int:order_id>/label')
+    @role_required()
+    def parcel_label(order_id):
+        get_order(order_id)
+        path=Path(app.instance_path)/'labels'/f'{order_id}.pdf'
+        if not path.exists():abort(404,'Label has not been generated yet.')
+        return send_file(path,mimetype='application/pdf')
+
+    @app.post('/orders/<int:order_id>/print-label')
+    @role_required()
+    def print_label(order_id):
+        get_order(order_id)
+        with db():
+            db().execute('BEGIN IMMEDIATE')
+            row=db().execute('SELECT state FROM print_jobs WHERE order_id=?',(order_id,)).fetchone()
+            if row:
+                if row['state'] in ('queued','rendering','sending'):abort(409,'Print is already pending.')
+                if request.form.get('checked')!='yes':abort(400,'Check the printer queue and confirm you need another copy.')
+                db().execute("UPDATE print_jobs SET state='queued',message='Operator requested another copy',spool_id=NULL WHERE order_id=?",(order_id,))
+            else:labels.enqueue(db(),order_id)
+            event(order_id,'Parcel label print requested')
+        return redirect(url_for('order',order_id=order_id))
 
     @app.post('/orders/<int:order_id>/confirm-packing')
     @role_required()
@@ -391,9 +441,9 @@ def create_app(config=None):
     @role_required()
     def pack(order_id):
         with db():
-            changed = db().execute("UPDATE orders SET status='packed' WHERE id=? AND status='booked' AND waybill IS NOT NULL",(order_id,)).rowcount
+            changed = db().execute("UPDATE orders SET status='packed' WHERE id=? AND status='booked' AND (waybill IS NOT NULL OR EXISTS(SELECT 1 FROM print_jobs p WHERE p.order_id=orders.id AND p.state='spooled'))",(order_id,)).rowcount
             if not changed:
-                abort(409,'Packing requires a booked order and an attached FDE waybill.')
+                abort(409,'Packing requires a booked order and a printed parcel label.')
             event(order_id,'packed')
         return redirect('/packing')
 

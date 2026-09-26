@@ -103,7 +103,7 @@ def reserve(conn, order_id, number, weight, actor, packing_confirmed=False):
                          (number, weight, int(packing_confirmed), int(time.time()), order_id))
         except sqlite3.IntegrityError:
             raise Conflict('That waybill is reserved for another order.')
-        log(conn, order_id, actor, 'Packing confirmed; authorized one automatic FDE booking' if packing_confirmed else 'CCP waybill reserved; form preparation queued')
+        log(conn, order_id, actor, 'Automatic FDE submission authorized' if packing_confirmed else 'CCP waybill reserved; form preparation queued')
 
 
 def heartbeat(conn, enabled=False):
@@ -245,6 +245,6 @@ def submit_packed(conn, order_id, browser, enabled):
     job = snapshot(conn, order_id)
     if not enabled or not job['packing_confirmed'] or job['state'] != 'prepared':
         return False
-    transition(conn, order_id, 'prepared', 'approved', 'Packing confirmation authorizes verified automatic submission')
+    transition(conn, order_id, 'prepared', 'approved', 'Order authorization allows one verified automatic submission')
     submit_one(conn, order_id, browser, enabled=True)
     return True

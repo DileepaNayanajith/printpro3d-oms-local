@@ -1,49 +1,21 @@
-# Current packing-to-FDE flow
+# PRINTPRO3D print, scan and pack
 
-1. Caller saves a confirmed order.
-2. Packing checks the parcel, enters the CCP sticker and weight, and clicks **Confirm packing & book with FDE**.
-3. The worker fills and verifies the form, then submits once. No second approval is required.
-4. A fresh FDE **Success! / Add Successfully!** receipt marks the order booked with the assigned tracking number.
-5. Timeout, logout or an unexpected response requires attention; never submit the same parcel again without checking FDE.
+1. Caller saves a confirmed order. One A5 parcel label is queued automatically on the left half of a landscape A4 sheet. Drafts do not print. Repeated saves cannot queue duplicate labels.
+2. Check the HP printout. Cut at the middle line and attach the supplied courier sticker in the empty sticker box. Leave the OMS barcode visible.
+3. Open **Scan labels**. Scan the OMS PP3D barcode, then the courier CCP barcode. Configure the USB scanner to send Enter after each scan. Without a scanner, select the order and type the courier number.
+4. The second scan authorizes one automatic FDE booking using the saved details and rounded-up weight band. The FDE browser must be open and signed in. No packing confirmation is needed to trigger booking.
+5. Pack the items using the packing sheet, match the reference and tracking sticker, attach the label, and mark packed after FDE has confirmed booking.
 
-Run `start_fde.command` on the main computer and keep its browser open and signed in. This launcher enables submission for packing-confirmed orders. Preparation-only orders do not gain submission permission automatically. The official label PDF download/attachment remains manual.
+## Start the main computer
 
-Live verification: on 26 September 2026, the owner confirmed order PP3D-000002 was packed and ready. Its CCP17778579 booking received the FDE success receipt. The updated automated receipt detector is covered by tests; do not create duplicate live bookings for testing.
+Open `start_staff.command` (starts the app and local print worker), then `start_fde.command`. Keep both running. Workers use the same Wi-Fi link. Do not expose the local HTTP service to the internet.
 
-## Earlier pilot reference
+The ignored `instance/printing.json` contains the selected printer and sender details from the supplied template. Fresh installations must configure it before printing. Defaults for this installation use HP_LaserJet_Professional_P1102, A4 landscape, one-sided. This version uses one half of each sheet; it does not batch two orders onto one page.
 
-# PRINTPRO3D — staff pilot
+## Printer and exception handling
 
-Use the staff link supplied by the owner while connected to the same trusted work Wi-Fi. The owner computer and both app/browser processes must stay running. This pilot uses HTTP on the local network; do not open router ports or share it over public Wi-Fi. Use an HTTPS gateway before internet access.
+“Sent to printer” means the operating-system spooler accepted the job, not that paper physically came out. If the printer is offline, its spooler can retain the job. Do not request another copy until you have checked the printer queue. Use the order page to request an explicit reprint. Uncertain print attempts never retry automatically. English/Latin label text is supported; unsupported characters or oversized text require correction rather than printing unreadable labels.
 
-## Caller
+FDE timeouts or unexpected responses require reconciliation before retrying. The worker accepts only the observed fresh “Success!” / “Add Successfully!” response as booking success. A real authorized order CCP17778579 was successfully submitted on 26 September 2026; do not use it for repeat submission tests.
 
-1. Call and qualify in Meta Business Suite as usual.
-2. Sign into OMS with your caller username and password.
-3. Enter the confirmed delivery details once. Check phone, address, FDE city, product/variant, quantity, total COD and packed weight.
-4. Select **Save confirmed order → packing**. Use **Save draft** if information is missing.
-5. Review the FDE worker form when ready. Filling is not submission. During the pilot, verify the actual FDE parcel record before confirming tracking in OMS.
-6. Save the official FDE label PDF and attach it to the order.
-
-## Packing
-
-1. Sign in with your packing account. The **To pack** list shows active orders.
-2. Match product and quantity to the physical parcel.
-3. Scan/type the unused assigned CCP sticker number and confirm the FDE kg band. Queue automatic form filling.
-4. Wait for courier confirmation and the official waybill.
-5. Open/print the waybill, check recipient and sticker match, then mark packed.
-6. Use **Already packed** to find completed work. Never dispatch TEST ONLY entries.
-
-## Owner
-
-- Staff passwords are in local `instance/staff-access.txt`; distribute only the appropriate account password. This file is excluded from GitHub.
-- Add individual accounts with `python manage.py add-user username --role caller` or `--role packer`. Passwords are entered privately at the prompt and stored hashed.
-- Disable a departing user with `python manage.py disable-user username`.
-- The two sample staff accounts are station accounts. Create one username per worker if individual audit is required.
-- Double-click `start_staff.command` to launch the local staff service on macOS, and `start_fde.command` for FDE preparation. Do not start a second copy if already running.
-- Keep the dedicated FDE browser open after login. Closing it can lose the portal session.
-- If **Needs review** appears, search FDE by exact waybill/order reference before retrying. Ask the owner if data needs correction; qualified-order editing/cancellation is not implemented yet.
-
-## Before everyday dispatch
-
-Live auto-fill is verified. A controlled real booking, success reconciliation and official label/printer check are still required. Automatic submit remains off. This is a staff pilot, not yet unattended courier dispatch.
+The template is the user's parcel label, not an automatically downloaded official FDE PDF. Official PDFs can still be attached separately if needed. Actual USB-scanner operation and physical paper output must be verified on the user's hardware.

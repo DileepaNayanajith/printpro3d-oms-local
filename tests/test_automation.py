@@ -50,7 +50,7 @@ class QueueTests(unittest.TestCase):
         self.assertIsNone(self.conn.execute('SELECT tracking FROM orders WHERE id=1').fetchone()[0])
         page=self.client.get('/orders/1').data
         self.assertIn(b'FDE browser is offline',page)
-        self.assertIn(b'Fill FDE form automatically',page)
+        self.assertIn(b'Scan label &amp;',page.replace(b' & ',b' &amp; '))
 
     def test_packing_confirmation_submits_once_without_second_approval(self):
         data={'waybill_number':'17778579','weight_kg':'2'}
@@ -162,7 +162,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.post('/orders/2/prepare',{'waybill_number':'17778578','weight_kg':'2'}).status_code,409)
 
     def test_packing_gets_orders_before_booking_but_cannot_submit(self):
-        self.assertIn(b'Confirm packing &amp;',self.client.get('/packing').data.replace(b' & ',b' &amp; '))
+        self.assertIn(b'Scan label and courier sticker',self.client.get('/packing').data)
         self.app.config.update(ADMIN_PASSWORD='admin',PACKER_PASSWORD='packer')
         self.post('/login',{'role':'packer','password':'packer'})
         with self.client.session_transaction() as session:

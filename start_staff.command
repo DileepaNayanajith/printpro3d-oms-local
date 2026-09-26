@@ -11,4 +11,7 @@ if [[ -z "$oms_wifi_address" ]]; then
 fi
 print "Staff link: http://${oms_wifi_address}:5055"
 print 'Keep this window and computer running. Use only your trusted work Wi-Fi.'
-exec .venv/bin/python serve.py --host "$oms_wifi_address"
+.venv/bin/python print_worker.py &
+oms_print_pid=$!
+trap 'kill "$oms_print_pid" 2>/dev/null' EXIT INT TERM
+.venv/bin/python serve.py --host "$oms_wifi_address"
