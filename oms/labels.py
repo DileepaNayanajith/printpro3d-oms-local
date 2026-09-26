@@ -2,6 +2,7 @@
 import json
 import re
 import subprocess
+import uuid
 from pathlib import Path
 from xml.sax.saxutils import escape
 from reportlab.pdfgen import canvas
@@ -17,16 +18,17 @@ def migrate(conn):
       order_id INTEGER PRIMARY KEY REFERENCES orders(id),
       state TEXT NOT NULL DEFAULT 'queued', spool_id TEXT, message TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+    if 'batch_id' not in {r[1] for r in conn.execute('PRAGMA table_info(print_jobs)')}:
+        conn.execute('ALTER TABLE print_jobs ADD COLUMN batch_id TEXT')
+        conn.execute("UPDATE print_jobs SET state='ready',message='Ready for batch printing' WHERE state='queued'")
     conn.commit()
 
 
 def enqueue(conn, order_id):
-    conn.execute('INSERT OR IGNORE INTO print_jobs(order_id) VALUES(?)',(order_id,))
+    conn.execute("INSERT OR IGNORE INTO print_jobs(order_id,state,message) VALUES(?,'ready','Ready for batch printing')",(order_id,))
 
 
-def render_label(order, sender, target):
-    c=canvas.Canvas(str(target),pagesize=landscape(A4))
-    c.setTitle('PRINTPRO3D parcel label')
+def draw_label(c, order, sender):
     left=10*mm; width=128*mm
     c.setLineWidth(1.4)
     c.rect(6*mm,7*mm,136*mm,196*mm)
@@ -64,34 +66,73 @@ def render_label(order, sender, target):
     ref='PP3D-%06d'%order['order_id']
     barcode=code128.Code128(ref,barHeight=10*mm,barWidth=0.32*mm,humanReadable=True)
     barcode.drawOn(c,left+10*mm,14*mm)
-    c.setDash(3,3);c.line(148.5*mm,5*mm,148.5*mm,205*mm)
-    text('Cut here - A5 parcel label',155*mm,10*mm,9)
-    c.showPage();c.save()
+
+
+def render_batch(orders, sender, target):
+    c=canvas.Canvas(str(target),pagesize=landscape(A4))
+    c.setTitle('PRINTPRO3D paired parcel labels')
+    for index,order in enumerate(orders):
+        c.saveState()
+        c.translate((index%2)*148.5*mm,0)
+        draw_label(c,order,sender)
+        c.restoreState()
+        if index%2==1 or index==len(orders)-1:
+            c.saveState();c.setDash(3,3)
+            c.line(148.5*mm,5*mm,148.5*mm,205*mm)
+            c.restoreState();c.showPage()
+    c.save()
+
+
+def render_label(order,sender,target):
+    render_batch([order],sender,target)
+
+
+def queue_batch(conn, order_ids):
+    ids=sorted(set(order_ids))
+    if not ids or len(ids)>200:
+        raise ValueError('Select between 1 and 200 labels.')
+    marks=','.join('?' for _ in ids)
+    with conn:
+        conn.execute('BEGIN IMMEDIATE')
+        rows=conn.execute(f'SELECT order_id,state FROM print_jobs WHERE order_id IN ({marks})',ids).fetchall()
+        if len(rows)!=len(ids) or any(row['state']!='ready' for row in rows):
+            raise ValueError('Some selected labels are already queued or printed. Refresh the list.')
+        batch=uuid.uuid4().hex
+        conn.execute(f"UPDATE print_jobs SET batch_id=?,state='queued',message='Batch queued for HP printing' WHERE order_id IN ({marks})",[batch]+ids)
+        return batch
 
 
 def print_one(conn, root, runner=subprocess.run):
     with conn:
         conn.execute('BEGIN IMMEDIATE')
-        row=conn.execute("SELECT order_id FROM print_jobs WHERE state='queued' ORDER BY order_id LIMIT 1").fetchone()
-        if not row:return False
-        order_id=row['order_id']
-        conn.execute("UPDATE print_jobs SET state='rendering',message='Preparing parcel label' WHERE order_id=?",(order_id,))
+        first=conn.execute("SELECT order_id,batch_id FROM print_jobs WHERE state='queued' ORDER BY created_at,order_id LIMIT 1").fetchone()
+        if not first:return False
+        batch=first['batch_id'] or uuid.uuid4().hex
+        if first['batch_id']:
+            rows=conn.execute("SELECT order_id FROM print_jobs WHERE batch_id=? AND state='queued' ORDER BY order_id",(batch,)).fetchall()
+            ids=[r['order_id'] for r in rows]
+        else:ids=[first['order_id']]
+        marks=','.join('?' for _ in ids)
+        conn.execute(f"UPDATE print_jobs SET state='rendering',batch_id=?,message='Preparing paired A4 labels' WHERE order_id IN ({marks})",[batch]+ids)
+    def status(state,message,spool=None):
+        with conn:conn.execute(f'UPDATE print_jobs SET state=?,message=?,spool_id=? WHERE order_id IN ({marks})',[state,message,spool]+ids)
     try:
         settings=json.loads((Path(root)/'printing.json').read_text())
-        order=dict(conn.execute('SELECT l.*,o.id AS order_id FROM orders o JOIN leads l ON l.id=o.lead_id WHERE o.id=?',(order_id,)).fetchone())
+        orders=[dict(conn.execute('SELECT l.*,o.id AS order_id FROM orders o JOIN leads l ON l.id=o.lead_id WHERE o.id=?',(oid,)).fetchone()) for oid in ids]
         folder=Path(root)/'labels';folder.mkdir(exist_ok=True)
-        target=folder/f'{order_id}.pdf'
-        render_label(order,settings['sender'],target)
+        target=folder/f'batch-{batch}.pdf'
+        render_batch(orders,settings['sender'],target)
+        for order in orders:render_label(order,settings['sender'],folder/f"{order['order_id']}.pdf")
     except Exception:
-        with conn:conn.execute("UPDATE print_jobs SET state='failed',message='Label could not be prepared. Check sender settings and text length.' WHERE order_id=?",(order_id,))
+        status('failed','Batch could not be prepared. Check sender settings, unsupported characters and text length.')
         return True
-    with conn:conn.execute("UPDATE print_jobs SET state='sending',message='Sending once to printer' WHERE order_id=?",(order_id,))
+    status('sending','Sending batch once to printer')
     try:
         result=runner(['/usr/bin/lp','-d',settings['printer'],'-n','1','-o','media=A4','-o','sides=one-sided',str(target)],capture_output=True,text=True,timeout=25)
         match=re.search(r'request id is (\S+)',result.stdout)
         if result.returncode or not match:raise RuntimeError('Unknown print response')
     except Exception:
-        with conn:conn.execute("UPDATE print_jobs SET state='needs_review',message='Print result uncertain. Check printer queue before requesting another copy.' WHERE order_id=?",(order_id,))
+        status('needs_review','Print result uncertain. Check printer queue before requesting another copy.')
     else:
-        with conn:conn.execute("UPDATE print_jobs SET state='spooled',spool_id=?,message='Sent to printer. Check the printed sheet before scanning.' WHERE order_id=?",(match.group(1),order_id))
+        status('spooled','Sent to HP printer. Check paper output before scanning.',match.group(1))
     return True

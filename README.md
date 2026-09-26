@@ -2,7 +2,7 @@
 
 Caller enters details once → packing assigns an existing CCP sticker → a dedicated browser fills FDE → staff verify booking → official label → packed.
 
-The app and browser-worker implementation are ready for a supervised local pilot. No real parcel has been submitted during development. Live receipt detection and automatic label download/printing are not commissioned.
+The local staff pilot supports order entry, selected batch printing (two A5 parcel labels per landscape A4), continuous barcode scanning, and FDE automatic booking with observed success-receipt detection. A real owner-authorized order was submitted successfully. The user-supplied parcel label is generated locally; official FDE label download is separate. See docs/STAFF-GUIDE.md for the current workflow.
 
 ## Technology
 

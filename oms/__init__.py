@@ -10,7 +10,7 @@ from pathlib import Path
 from functools import wraps
 from werkzeug.security import check_password_hash
 
-from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file
+from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
 from . import automation, labels
 
 
@@ -213,14 +213,14 @@ def create_app(config=None):
             if confirm:
                 existing=db().execute('SELECT o.id FROM orders o JOIN leads l ON l.id=o.lead_id WHERE l.intake_key=?',(key,)).fetchone()
                 if existing:
-                    return redirect(url_for('order',order_id=existing['id']))
+                    return redirect(url_for('index',saved=existing['id']) if request.form.get('return_to')=='desk' else url_for('order',order_id=existing['id']))
             cur = db().execute('INSERT INTO leads('+','.join(data)+') VALUES('+','.join('?' for _ in data)+')', tuple(data.values()))
             if confirm:
                 order_id=db().execute('INSERT INTO orders(lead_id) VALUES(?)',(cur.lastrowid,)).lastrowid
                 db().execute('INSERT INTO booking_jobs(order_id,reference) VALUES(?,?)',(order_id,f'PP3D-{order_id:06d}'))
                 labels.enqueue(db(),order_id)
-                event(order_id,'caller saved confirmed Meta order; label queued for printing')
-                return redirect(url_for('order',order_id=order_id))
+                event(order_id,'caller saved confirmed Meta order; label ready for batch printing')
+                return redirect(url_for('index',saved=order_id) if request.form.get('return_to')=='desk' else url_for('order',order_id=order_id))
         return redirect(url_for('lead', lead_id=cur.lastrowid))
 
     @app.route('/leads/<int:lead_id>', methods=['GET','POST'])
@@ -248,7 +248,7 @@ def create_app(config=None):
                     order_id = db().execute('INSERT INTO orders(lead_id) VALUES(?)',(lead_id,)).lastrowid
                     db().execute('INSERT INTO booking_jobs(order_id,reference) VALUES(?,?)',(order_id,f'PP3D-{order_id:06d}'))
                     labels.enqueue(db(),order_id)
-                    event(order_id,'qualified; label queued for printing')
+                    event(order_id,'qualified; label ready for batch printing')
             return redirect('/')
         duplicate = db().execute('SELECT id FROM leads WHERE phone=? AND id!=?', (row['phone'],lead_id)).fetchall()
         return render_template('lead.html', lead=row, duplicates=duplicate)
@@ -274,6 +274,29 @@ def create_app(config=None):
     def help_page():
         return render_template('help.html')
 
+    @app.route('/labels',methods=['GET','POST'])
+    @role_required()
+    def label_batches():
+        error=None
+        if request.method=='POST':
+            try:
+                ids=[int(value) for value in request.form.getlist('orders')]
+                labels.queue_batch(db(),ids)
+                return redirect(url_for('label_batches',queued=len(set(ids))))
+            except ValueError as exc:error=str(exc)
+        rows=db().execute("""SELECT p.*,l.name,l.product,l.quantity,o.created_at FROM print_jobs p
+          JOIN orders o ON o.id=p.order_id JOIN leads l ON l.id=o.lead_id
+          ORDER BY CASE WHEN p.state='ready' THEN 0 ELSE 1 END,o.id DESC""").fetchall()
+        return render_template('labels.html',orders=rows,error=error,queued=request.args.get('queued')),400 if error else 200
+
+    @app.get('/scan/status')
+    @role_required()
+    def scan_status():
+        rows=db().execute("""SELECT j.order_id,j.assigned_waybill,j.state,j.message,l.name FROM booking_jobs j
+          JOIN orders o ON o.id=j.order_id JOIN leads l ON l.id=o.lead_id
+          WHERE j.assigned_waybill IS NOT NULL ORDER BY j.updated_at DESC LIMIT 20""").fetchall()
+        return jsonify([dict(r) for r in rows])
+
     @app.route('/scan', methods=['GET','POST'])
     @role_required()
     def scan():
@@ -292,6 +315,8 @@ def create_app(config=None):
                 with db():event(order_id,'Printed label and courier sticker scanned; automatic FDE submission authorized')
             except automation.Conflict as error:abort(409,str(error))
             except ValueError as error:abort(400,str(error))
+            if request.headers.get('Accept')=='application/json':
+                return jsonify(order_id=order_id,name=row['name'],message='Queued for FDE booking')
             return redirect(url_for('scan',sent=order_id))
         rows=db().execute("""SELECT o.id,l.name,l.product,p.state,p.message FROM orders o
           JOIN leads l ON l.id=o.lead_id JOIN print_jobs p ON p.order_id=o.id
@@ -315,11 +340,11 @@ def create_app(config=None):
             row=db().execute('SELECT state FROM print_jobs WHERE order_id=?',(order_id,)).fetchone()
             if row:
                 if row['state'] in ('queued','rendering','sending'):abort(409,'Print is already pending.')
-                if request.form.get('checked')!='yes':abort(400,'Check the printer queue and confirm you need another copy.')
-                db().execute("UPDATE print_jobs SET state='queued',message='Operator requested another copy',spool_id=NULL WHERE order_id=?",(order_id,))
+                if row['state']!='ready' and request.form.get('checked')!='yes':abort(400,'Check the printer queue and confirm you need another copy.')
+                db().execute("UPDATE print_jobs SET state='ready',message='Ready for a new print batch',spool_id=NULL,batch_id=NULL WHERE order_id=?",(order_id,))
             else:labels.enqueue(db(),order_id)
             event(order_id,'Parcel label print requested')
-        return redirect(url_for('order',order_id=order_id))
+        return redirect(url_for('label_batches'))
 
     @app.post('/orders/<int:order_id>/confirm-packing')
     @role_required()

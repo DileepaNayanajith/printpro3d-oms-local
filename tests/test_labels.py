@@ -25,6 +25,8 @@ class LabelFlowTests(unittest.TestCase):
     def test_duplicate_order_only_queues_one_label_and_print_once(self):
         self.post('/leads',self.data)
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM print_jobs').fetchone()[0],1)
+        self.assertFalse(labels.print_one(self.conn,self.root,Mock()))
+        labels.queue_batch(self.conn,[1])
         runner=Mock(return_value=Mock(returncode=0,stdout='request id is TEST_PRINTER-123 (1 file(s))'))
         self.assertTrue(labels.print_one(self.conn,self.root,runner))
         self.assertFalse(labels.print_one(self.conn,self.root,runner))
@@ -33,6 +35,7 @@ class LabelFlowTests(unittest.TestCase):
         self.assertTrue((self.root/'labels/1.pdf').read_bytes().startswith(b'%PDF'))
 
     def test_uncertain_print_never_retries_itself(self):
+        labels.queue_batch(self.conn,[1])
         runner=Mock(side_effect=TimeoutError())
         labels.print_one(self.conn,self.root,runner)
         self.assertEqual(self.conn.execute('SELECT state FROM print_jobs').fetchone()[0],'needs_review')
@@ -54,3 +57,30 @@ class LabelFlowTests(unittest.TestCase):
     def test_scan_does_not_guess_an_order_from_courier_barcode(self):
         self.assertEqual(self.post('/scan',{'reference':'CCP17779999','waybill_number':'17779999'}).status_code,400)
         self.assertEqual(self.conn.execute('SELECT state FROM booking_jobs').fetchone()[0],'pending')
+
+    def test_selected_batch_pairs_labels_and_keeps_unselected_ready(self):
+        for n in range(2,5):self.post('/leads',dict(self.data,intake_key=str(n)*24))
+        response=self.post('/labels',{'orders':['1','2','3']})
+        self.assertEqual(response.status_code,302)
+        self.assertEqual(self.post('/labels',{'orders':['1','4']}).status_code,400)
+        self.assertEqual(self.conn.execute('SELECT state FROM print_jobs WHERE order_id=4').fetchone()[0],'ready')
+        runner=Mock(return_value=Mock(returncode=0,stdout='request id is TEST-42 (1 file(s))'))
+        labels.print_one(self.conn,self.root,runner)
+        runner.assert_called_once()
+        target=Path(runner.call_args[0][0][-1])
+        self.assertIn(b'/Count 2',target.read_bytes())
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM print_jobs WHERE state='spooled'").fetchone()[0],3)
+        self.assertEqual(self.conn.execute('SELECT COUNT(DISTINCT spool_id) FROM print_jobs').fetchone()[0],1)
+        self.assertFalse(labels.print_one(self.conn,self.root,runner))
+
+    def test_batch_rejects_empty_and_duplicate_click(self):
+        self.assertEqual(self.post('/labels',{}).status_code,400)
+        self.assertEqual(self.post('/labels',{'orders':['1','1']}).status_code,302)
+        self.assertEqual(self.post('/labels',{'orders':['1']}).status_code,400)
+        self.assertEqual(self.client.get('/labels').status_code,200)
+        self.assertEqual(self.client.get('/scan/status').status_code,200)
+
+    def test_save_and_add_next_returns_to_desk_without_printing(self):
+        r=self.post('/leads',dict(self.data,intake_key='y'*24,return_to='desk'))
+        self.assertIn('/?saved=',r.location)
+        self.assertEqual(self.conn.execute('SELECT state FROM print_jobs WHERE order_id=2').fetchone()[0],'ready')
