@@ -494,7 +494,7 @@ def create_app(config=None):
     @role_required(admin=True)
     def sms_queue():
         rows=db().execute('SELECT * FROM sms_outbox ORDER BY id DESC LIMIT 100').fetchall()
-        return render_template('sms.html',messages=rows)
+        return render_template('sms.html',messages=rows,sms_enabled=bool(sms.settings(app.instance_path).get('enabled')))
 
     @app.get('/orders.csv')
     @role_required(admin=True)

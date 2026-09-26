@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import Mock,patch
 from oms import create_app,sms
 
 class SmsTests(unittest.TestCase):
@@ -34,3 +35,36 @@ class SmsTests(unittest.TestCase):
         for value in ['0771234567','+94771234567','94 77 1234567']:
             self.assertEqual(sms.mobile_number(value),'94771234567')
         with self.assertRaises(ValueError):sms.mobile_number('0000000000')
+
+    def test_transport_claims_once_and_uncertain_result_never_retries(self):
+        self.post('/leads',self.data)
+        self.c.row_factory=sqlite3.Row
+        config={'enabled':True,'token':'test-secret','sender_id':'PRINTPRO3D','first_message_id':1}
+        def uncertain(config,row):
+            self.assertEqual(self.c.execute('SELECT state FROM sms_outbox').fetchone()[0],'sending')
+            raise TimeoutError('sensitive error')
+        sender=Mock(side_effect=uncertain)
+        with patch('oms.sms.settings',return_value=config):
+            self.assertTrue(sms.send_one(self.c,self.tmp.name,sender))
+            self.assertFalse(sms.send_one(self.c,self.tmp.name,sender))
+        sender.assert_called_once()
+        self.assertEqual(self.c.execute('SELECT state FROM sms_outbox').fetchone()[0],'needs_review')
+
+    def test_activation_does_not_send_old_messages_and_demo_is_blocked(self):
+        self.post('/leads',self.data);self.c.row_factory=sqlite3.Row
+        sender=Mock(return_value=('accepted','provider-1'))
+        config={'enabled':True,'token':'test-secret','sender_id':'PRINTPRO3D','first_message_id':2}
+        with patch('oms.sms.settings',return_value=config):self.assertFalse(sms.send_one(self.c,self.tmp.name,sender))
+        self.post('/leads',dict(self.data,intake_key='b'*24))
+        with patch('oms.sms.settings',return_value=dict(config,sender_id='TextLKDemo')):self.assertFalse(sms.send_one(self.c,self.tmp.name,sender))
+        sender.assert_not_called()
+        with patch('oms.sms.settings',return_value=config):self.assertTrue(sms.send_one(self.c,self.tmp.name,sender))
+        self.assertEqual(self.c.execute('SELECT state FROM sms_outbox WHERE id=1').fetchone()[0],'awaiting_setup')
+        self.assertEqual(self.c.execute('SELECT state FROM sms_outbox WHERE id=2').fetchone()[0],'accepted')
+
+    def test_templates_fit_one_plain_sms_even_with_long_tracking(self):
+        self.post('/leads',self.data)
+        with self.c:self.c.execute("UPDATE orders SET status='packed',tracking=? WHERE id=1",('X'*64,))
+        self.post('/orders/1/dispatch')
+        for body, in self.c.execute('SELECT body FROM sms_outbox'):
+            self.assertLessEqual(len(body),160);self.assertTrue(body.isascii())

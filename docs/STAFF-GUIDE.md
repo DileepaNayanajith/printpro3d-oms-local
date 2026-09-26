@@ -24,3 +24,15 @@ The template is the user's parcel label, not an automatically downloaded officia
 ## Customer SMS setup pending
 
 New confirmed orders prepare one processing message. Once a packed parcel is actually handed to FDE, **Handed to courier · mark dispatched** prepares a second message with its tracking number. Booking a parcel alone does not claim it has been dispatched. The SMS page shows prepared messages and invalid mobile numbers. No SMS transport or provider is configured yet, so nothing is sent. Do not release held setup messages retroactively without checking their age and current order status when activating a provider. Provider credentials belong in ignored local settings, never Git or chat.
+
+## Activate Text.lk
+
+The Text.lk adapter is implemented using the documented HTTPS Bearer-token API: https://text.lk/docs/send-sms/ .
+
+1. Create/sign into your Text.lk account. Request an approved sender ID (for example PRINTPRO3D) under Sending → Sender ID. TextLKDemo is for testing, not customer production messages. Confirm live account access and credit balance with Text.lk.
+2. On the main computer, double-click `setup_sms.command`. Enter the approved sender ID and API token in the local terminal; the token entry is hidden. It is saved only in ignored `instance/textlk.json` with owner-only permissions.
+3. Type ENABLE only when ready for automatic messages on new order/dispatch events. Previously held messages are not released. Setup does not buy credits or create a Text.lk account.
+4. `start_staff.command` starts the SMS worker too; if the app is already running, use `start_sms.command` once. Its lock prevents duplicate workers.
+5. Verify with a new order using your own mobile number before using customer numbers. There has been no live SMS verification without account credentials.
+
+The worker sends each event once. A timeout/restart after sending requires manual provider-log review; it never retries automatically. Explicit errors show rejected. API success with a message UID shows accepted, or delivered only if Text.lk reports Delivered. Delivery is not otherwise polled yet. Events older than 24 hours and processing messages for already-dispatched orders are held as stale. Templates use short plain English to remain within one SMS unit.
