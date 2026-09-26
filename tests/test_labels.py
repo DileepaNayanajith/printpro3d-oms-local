@@ -3,7 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from oms import create_app
 from oms import labels
 
@@ -84,3 +84,19 @@ class LabelFlowTests(unittest.TestCase):
         r=self.post('/leads',dict(self.data,intake_key='y'*24,return_to='desk'))
         self.assertIn('/?saved=',r.location)
         self.assertEqual(self.conn.execute('SELECT state FROM print_jobs WHERE order_id=2').fetchone()[0],'ready')
+
+    def test_unprinted_label_preview_does_not_queue_print_or_booking(self):
+        settings=json.loads((self.root/'printing.json').read_text())
+        with patch('oms.labels.load_settings',return_value=settings):
+            response=self.client.get('/orders/1/label')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.mimetype,'application/pdf')
+        self.assertTrue(response.data.startswith(b'%PDF'))
+        self.assertEqual(self.conn.execute('SELECT state FROM print_jobs').fetchone()[0],'ready')
+        self.assertEqual(self.conn.execute('SELECT state FROM booking_jobs').fetchone()[0],'pending')
+
+    def test_preview_missing_settings_has_actionable_error(self):
+        with patch('oms.labels.load_settings',side_effect=FileNotFoundError()):
+            response=self.client.get('/orders/1/label')
+        self.assertEqual(response.status_code,422)
+        self.assertIn(b'No print was queued',response.data)

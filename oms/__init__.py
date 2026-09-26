@@ -326,10 +326,15 @@ def create_app(config=None):
     @app.get('/orders/<int:order_id>/label')
     @role_required()
     def parcel_label(order_id):
-        get_order(order_id)
+        order=get_order(order_id)
         path=Path(app.instance_path)/'labels'/f'{order_id}.pdf'
-        if not path.exists():abort(404,'Label has not been generated yet.')
-        return send_file(path,mimetype='application/pdf')
+        if path.exists():
+            return send_file(path,mimetype='application/pdf')
+        try:
+            preview=labels.preview_label(dict(order),app.instance_path)
+        except (OSError,ValueError,KeyError):
+            abort(422,'Cannot prepare the label preview. Check sender settings, text length and unsupported characters. No print was queued.')
+        return send_file(preview,mimetype='application/pdf',download_name=f'PP3D-{order_id:06d}-preview.pdf',max_age=0)
 
     @app.post('/orders/<int:order_id>/print-label')
     @role_required()

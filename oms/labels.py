@@ -1,5 +1,6 @@
 """A5 parcel label on the left half of landscape A4; durable local print queue."""
 import json
+import io
 import re
 import subprocess
 import uuid
@@ -69,7 +70,7 @@ def draw_label(c, order, sender):
 
 
 def render_batch(orders, sender, target):
-    c=canvas.Canvas(str(target),pagesize=landscape(A4))
+    c=canvas.Canvas(target if hasattr(target,'write') else str(target),pagesize=landscape(A4))
     c.setTitle('PRINTPRO3D paired parcel labels')
     for index,order in enumerate(orders):
         c.saveState()
@@ -85,6 +86,17 @@ def render_batch(orders, sender, target):
 
 def render_label(order,sender,target):
     render_batch([order],sender,target)
+
+
+def load_settings(root):
+    return json.loads((Path(root)/'printing.json').read_text())
+
+
+def preview_label(order, root):
+    output=io.BytesIO()
+    render_label(order,load_settings(root)['sender'],output)
+    output.seek(0)
+    return output
 
 
 def queue_batch(conn, order_ids):
