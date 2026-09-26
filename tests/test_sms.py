@@ -68,3 +68,20 @@ class SmsTests(unittest.TestCase):
         self.post('/orders/1/dispatch')
         for body, in self.c.execute('SELECT body FROM sms_outbox'):
             self.assertLessEqual(len(body),160);self.assertTrue(body.isascii())
+
+    def test_whatsapp_prefills_current_status_without_marking_message_sent(self):
+        from urllib.parse import urlsplit,parse_qs
+        self.post('/leads',self.data)
+        r=self.client.get('/orders/1/whatsapp')
+        self.assertEqual(r.status_code,302)
+        self.assertEqual(urlsplit(r.location).netloc,'wa.me')
+        self.assertEqual(urlsplit(r.location).path,'/94771234567')
+        self.assertIn('confirmed and processing',parse_qs(urlsplit(r.location).query)['text'][0])
+        with self.c:self.c.execute("UPDATE orders SET status='booked',tracking='17779999' WHERE id=1")
+        body=parse_qs(urlsplit(self.client.get('/orders/1/whatsapp').location).query)['text'][0]
+        self.assertIn('being prepared',body)
+        self.assertNotIn('has been handed',body)
+        with self.c:self.c.execute("UPDATE orders SET status='dispatched' WHERE id=1")
+        body=parse_qs(urlsplit(self.client.get('/orders/1/whatsapp').location).query)['text'][0]
+        self.assertIn('has been handed',body);self.assertIn('17779999',body)
+        self.assertEqual(self.c.execute('SELECT state FROM sms_outbox').fetchone()[0],'awaiting_setup')

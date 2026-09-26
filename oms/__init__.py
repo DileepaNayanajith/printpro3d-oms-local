@@ -4,6 +4,7 @@ import io
 import os
 import re
 import secrets
+from urllib.parse import quote
 import sqlite3
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -263,6 +264,24 @@ def create_app(config=None):
         return render_template('order.html', order=row,
                                job=db().execute('SELECT * FROM booking_jobs WHERE order_id=?',(order_id,)).fetchone(),
                                events=db().execute('SELECT * FROM events WHERE order_id=? ORDER BY id',(order_id,)).fetchall())
+
+    @app.get('/orders/<int:order_id>/whatsapp')
+    @role_required()
+    def whatsapp_update(order_id):
+        row=get_order(order_id)
+        try:phone=sms.mobile_number(row['phone'])
+        except ValueError:abort(400,'Check the customer mobile number before opening WhatsApp.')
+        ref=f'PP3D-{order_id:06d}'
+        if row['order_status']=='dispatched':
+            message=f"Hi {row['name']}, your PRINTPRO3D order {ref} has been handed to FDE courier. Tracking ID: {row['tracking']}. Thank you!"
+        elif row['tracking']:
+            message=f"Hi {row['name']}, your PRINTPRO3D order {ref} is being prepared for courier handover. FDE tracking ID: {row['tracking']}. We will update you once dispatched."
+        else:
+            message=f"Hi {row['name']}, your PRINTPRO3D order {ref} is confirmed and processing. We will share the tracking number when ready. Thank you!"
+        response=redirect('https://wa.me/'+phone+'?text='+quote(message,safe=''))
+        response.headers['Referrer-Policy']='no-referrer'
+        response.headers['Cache-Control']='no-store'
+        return response
 
     @app.get('/courier')
     @role_required(admin=True)
