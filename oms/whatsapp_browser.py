@@ -9,7 +9,7 @@ class LoginRequired(RuntimeError):
 
 def normalized(text):
     # WhatsApp renders formatting markers and these emoji as styled elements.
-    for char in '*👋📦🚚\ufe0f':
+    for char in '*•👋📦🚚\ufe0f':
         text = text.replace(char, '')
     return re.sub(r'\s+', ' ', text).strip()
 

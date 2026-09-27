@@ -44,3 +44,11 @@ class ConfirmationTests(unittest.TestCase):
         self.assertTrue(whatsapp.send_one(self.c,browser,'whatsapp_confirmations'))
         self.assertEqual(self.c.execute('SELECT state FROM whatsapp_confirmations').fetchone()[0],'sent')
         self.assertIn(b'Sample Customer',self.client.get('/confirmations').data)
+
+    def test_whatsapp_rendered_bullets_match_without_ignoring_prices(self):
+        from oms.confirmations import message
+        from oms.whatsapp_browser import normalized
+        body=message('Customer')
+        rendered=body.replace('• ','').replace('*','')
+        self.assertEqual(normalized(body),normalized(rendered))
+        self.assertNotEqual(normalized(body),normalized(rendered.replace('1,750','1,500')))
