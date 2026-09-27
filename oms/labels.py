@@ -143,7 +143,7 @@ def print_one(conn, root, runner=subprocess.run):
         return True
     status('sending','Sending batch once to printer')
     try:
-        result=runner(['/usr/bin/lp','-d',settings['printer'],'-n','1','-o','media=A4','-o','sides=one-sided',str(target)],capture_output=True,text=True,timeout=25)
+        result=runner(['/usr/bin/lp','-d',settings['printer'],'-n','1','-o','media=A4','-o','PageSize=A4','-o','orientation-requested=4','-o','fit-to-page','-o','number-up=1','-o','sides=one-sided',str(target)],capture_output=True,text=True,timeout=25)
         match=re.search(r'request id is (\S+)',result.stdout)
         if result.returncode or not match:raise RuntimeError('Unknown print response')
     except Exception:
