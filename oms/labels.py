@@ -110,7 +110,7 @@ def queue_batch(conn, order_ids):
     with conn:
         conn.execute('BEGIN IMMEDIATE')
         rows=conn.execute(f'SELECT order_id,state FROM print_jobs WHERE order_id IN ({marks})',ids).fetchall()
-        if len(rows)!=len(ids) or any(row['state'] not in ('ready','spooled','failed','needs_review') for row in rows):
+        if len(rows)!=len(ids) or any(row['state'] not in ('ready','spooled','manual','failed','needs_review') for row in rows):
             raise ValueError('Some selected labels are still being sent to the printer. Refresh and try again.')
         batch=uuid.uuid4().hex
         conn.execute(f"UPDATE print_jobs SET batch_id=?,state='queued',spool_id=NULL,marked_printed=1,message='Batch queued for HP printing' WHERE order_id IN ({marks})",[batch]+ids)
