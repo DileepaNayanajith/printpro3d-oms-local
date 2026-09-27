@@ -12,6 +12,8 @@ def migrate(conn):
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
       reply_status TEXT NOT NULL DEFAULT 'awaiting_reply'
     )''')
+    if 'include_photo' not in {r[1] for r in conn.execute('PRAGMA table_info(whatsapp_confirmations)')}:
+        conn.execute('ALTER TABLE whatsapp_confirmations ADD COLUMN include_photo INTEGER NOT NULL DEFAULT 0')
     conn.commit()
 
 
@@ -43,6 +45,6 @@ def queue(conn, name, phone, key):
         if existing:
             raise ValueError('This number already has a recent or pending message. Check the list before sending again.')
         cursor=conn.execute('''INSERT INTO whatsapp_confirmations
-          (name,phone,body,request_key,created_at,updated_at) VALUES(?,?,?,?,?,?)''',
+          (name,phone,body,request_key,created_at,updated_at,include_photo) VALUES(?,?,?,?,?,?,1)''',
           (name,phone,message(name),key,now,now))
         return cursor.lastrowid

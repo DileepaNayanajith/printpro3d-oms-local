@@ -78,13 +78,21 @@ def send_one(conn, browser, table='whatsapp_outbox'):
             conn.execute(f"UPDATE {table} SET state='stale',detail='Older than 24 hours; send manually if still relevant.' WHERE id=?", (row['id'],))
         return True
     # Prepare verifies the recipient and complete draft without sending.
-    browser.prepare(row['phone'], row['body'])
+    photo = table=='whatsapp_confirmations' and row['include_photo']
+    if photo:
+        from pathlib import Path
+        browser.prepare_photo(row['phone'], row['body'], Path(__file__).parent/'static/products/hot-wheels-rack.png')
+    else:
+        browser.prepare(row['phone'], row['body'])
     with conn:
         claimed = conn.execute(f"UPDATE {table} SET state='sending',updated_at=? WHERE id=? AND state='queued'", (int(time.time()), row['id'])).rowcount
     if not claimed:
         return False
     try:
-        browser.send(row['phone'], row['body'])
+        if photo:
+            browser.send_photo(row['phone'], row['body'])
+        else:
+            browser.send(row['phone'], row['body'])
         state, detail = 'sent', 'WhatsApp displayed a sent check mark. Delivery/read not confirmed.'
     except Exception:
         state, detail = 'needs_review', 'Send result uncertain. Check the customer chat; automatic retry is disabled.'

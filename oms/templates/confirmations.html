@@ -1,14 +1,14 @@
 {% extends 'base.html' %}{% block content %}
 <p class="eyebrow">CALLER DESK</p><h1>Confirm via WhatsApp</h1>
-<p>Send rack details to a customer who asked for them. Enter their name and WhatsApp number.</p>
+<p>Send the rack photo and details to a customer who asked for them. Enter their name and WhatsApp number.</p>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 {% if sent %}<p class="success" role="status">Message queued. It will send through the connected WhatsApp browser.</p>{% endif %}
 <div class="grid"><section><h2>Customer details</h2><form method="post">
 <input type="hidden" name="csrf" value="{{ session.csrf }}"><input type="hidden" name="request_key" value="{{ new_intake_key() }}">
 <label>Customer name<input name="name" maxlength="100" required value="{{ request.form.get('name','') }}" autocomplete="name"></label>
 <label>WhatsApp number<input name="phone" type="tel" required placeholder="077 123 4567" value="{{ request.form.get('phone','') }}" autocomplete="tel"></label>
-<button>Send details & ask to confirm</button></form><p class="muted">Replies arrive in WhatsApp. Check the customer's YES reply before adding their order in Orders.</p></section>
-<section><h2>Message preview</h2><p style="white-space:pre-line">{{ preview }}</p></section></div>
+<button>Send photo & details</button></form><p class="muted">Replies arrive in WhatsApp. Check the customer's YES reply before adding their order in Orders.</p></section>
+<section><h2>Photo & message preview</h2><img src="{{ url_for('static',filename='products/hot-wheels-rack.png') }}" alt="Hot Wheels racks connected together, with one 10-slot rack outlined" style="max-width:100%;max-height:320px;object-fit:contain"><p style="white-space:pre-line">{{ preview }}</p></section></div>
 <section><h2>Recent requests</h2><a href="/confirmations">Refresh status</a><div class="scroll"><table><tr><th>Customer</th><th>WhatsApp</th><th>Message status</th></tr>
 {% for m in messages %}<tr><td>{{ m.name }}</td><td>+{{ m.phone }}</td><td>{{ m.state|replace('_',' ') }}<br><small>{{ m.detail }}</small>{% if m.state=='blocked' %}<form method="post" action="/confirmations/{{ m.id }}/retry"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="secondary">Retry sending</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="3">No messages yet.</td></tr>{% endfor %}
 </table></div></section>{% endblock %}

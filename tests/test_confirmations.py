@@ -23,6 +23,7 @@ class ConfirmationTests(unittest.TestCase):
         self.assertEqual(self.client.post('/confirmations',data=dict(self.data,request_key='b'*24)).status_code,400)
         row=self.c.execute('SELECT * FROM whatsapp_confirmations').fetchone()
         self.assertEqual(row['phone'],'94771234567')
+        self.assertEqual(row['include_photo'],1)
         self.assertIn('3 or more racks',row['body'])
         self.assertIn('1,850',row['body']);self.assertIn('1,750',row['body'])
         self.assertIn('YES',row['body'])
@@ -32,10 +33,10 @@ class ConfirmationTests(unittest.TestCase):
         self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_confirmations').fetchone()[0],0)
     def test_sender_and_recovery_do_not_repeat_uncertain_messages(self):
         self.client.post('/confirmations',data=self.data)
-        browser=Mock();browser.send.side_effect=TimeoutError()
+        browser=Mock();browser.send_photo.side_effect=TimeoutError()
         self.assertTrue(whatsapp.send_one(self.c,browser,'whatsapp_confirmations'))
         self.assertFalse(whatsapp.send_one(self.c,browser,'whatsapp_confirmations'))
-        browser.send.assert_called_once()
+        browser.send_photo.assert_called_once()
         self.assertEqual(self.c.execute('SELECT state FROM whatsapp_confirmations').fetchone()[0],'needs_review')
         self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0],0)
     def test_success_and_page(self):

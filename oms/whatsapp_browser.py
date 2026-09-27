@@ -72,12 +72,45 @@ class WhatsAppBrowser:
             self.page.wait_for_timeout(500)
         raise RuntimeError('WhatsApp send acknowledgement was not observed.')
 
-    def acknowledged(self, body):
+    def prepare_photo(self, phone, body, path):
+        from pathlib import Path
+        path=Path(path).resolve(strict=True)
+        self.prepare(phone, body)
+        self.photo_recipient=phone
+        self.photo_header=self.page.get_by_test_id('conversation-info-header-chat-title').inner_text()
+        self.page.get_by_role('button',name='Attach',exact=True).click()
+        with self.page.expect_file_chooser() as chooser:
+            self.page.get_by_role('menuitem',name='Photos & videos',exact=True).click()
+        chooser.value.set_files(str(path))
+        caption=self.page.get_by_test_id('media-caption-input-container')
+        caption.wait_for(timeout=15000)
+        self.page.get_by_test_id('media-editor-canvas').wait_for(timeout=15000)
+        self.page.get_by_role('button',name='Send 1 selected',exact=True).wait_for(timeout=15000)
+        if normalized(caption.inner_text())!=normalized(body):
+            raise RuntimeError('Photo caption differs from the requested message.')
+
+    def send_photo(self, phone, body):
+        if phone!=self.photo_recipient:
+            raise RuntimeError('Photo recipient changed.')
+        if self.page.get_by_test_id('conversation-info-header-chat-title').inner_text()!=self.photo_header:
+            raise RuntimeError('Chat changed before photo send.')
+        if normalized(self.page.get_by_test_id('media-caption-input-container').inner_text())!=normalized(body):
+            raise RuntimeError('Photo caption changed before sending.')
+        self.page.get_by_role('button',name='Send 1 selected',exact=True).click(timeout=10000)
+        for _ in range(90):
+            if self.acknowledged(body, require_photo=True):
+                return
+            self.page.wait_for_timeout(500)
+        raise RuntimeError('Photo send acknowledgement was not observed.')
+
+    def acknowledged(self, body, require_photo=False):
         for bubble in self.page.locator('#main [data-id]').all():
             identity = bubble.get_attribute('data-id')
             if not identity or identity in self.before:
                 continue
-            texts = bubble.get_by_test_id('selectable-text').all_inner_texts()
+            if require_photo and not bubble.get_by_test_id('image-thumb').count():
+                continue
+            texts = bubble.locator('[data-testid="selectable-text"], [data-testid="image-caption selectable-text"]').all_inner_texts()
             if not any(normalized(t) == normalized(body) for t in texts):
                 continue
             statuses = bubble.get_by_test_id('msg-meta').locator('[aria-label]').evaluate_all(
