@@ -2,6 +2,9 @@
 import argparse
 import ipaddress
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 from waitress import serve
 from oms import create_app
 
@@ -23,6 +26,13 @@ def main():
     bindings=[f'{args.host}:{args.port}']
     if not address.is_loopback:
         bindings.append(f'127.0.0.1:{args.port}')
+    # Printing must also work when staff start serve.py directly. The worker's
+    # file lock prevents a second sender if a print worker already exists.
+    project = Path(__file__).resolve().parent
+    with (Path(app.instance_path) / 'print-worker.log').open('a') as log:
+        subprocess.Popen([sys.executable, str(project / 'print_worker.py')],
+                         cwd=str(project), stdout=log, stderr=subprocess.STDOUT,
+                         start_new_session=True)
     serve(app, listen=' '.join(bindings), threads=4)
 
 
