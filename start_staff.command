@@ -15,5 +15,7 @@ print 'Keep this window and computer running. Use only your trusted work Wi-Fi.'
 oms_print_pid=$!
 .venv/bin/python sms_worker.py &
 oms_sms_pid=$!
-trap 'kill "$oms_print_pid" "$oms_sms_pid" 2>/dev/null' EXIT INT TERM
+.venv/bin/python whatsapp_worker.py &
+oms_whatsapp_pid=$!
+trap 'kill "$oms_print_pid" "$oms_sms_pid" "$oms_whatsapp_pid" 2>/dev/null' EXIT INT TERM
 .venv/bin/python serve.py --host "$oms_wifi_address"

@@ -4,6 +4,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from .fde_browser import SignInRequired
+from . import whatsapp
 
 
 class Conflict(ValueError):
@@ -221,6 +222,7 @@ def confirm_booking(conn, order_id, tracking, actor):
             raise Conflict('This order is already booked.')
         conn.execute("UPDATE booking_jobs SET state='succeeded',message='FDE record manually verified.',updated_at=? WHERE order_id=?", (int(time.time()), order_id))
         log(conn, order_id, actor, 'FDE parcel and tracking manually reconciled')
+        whatsapp.queue(conn, order_id)
 
 
 def confirm_packing(conn, order_id, number, weight, actor):

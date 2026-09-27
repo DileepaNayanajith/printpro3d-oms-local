@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% block content %}
+<h1>WhatsApp tracking updates</h1>
+<p><strong>{{ whatsapp_status }}</strong></p>
+<p>After FDE confirms a booking, its tracking message is queued automatically. Keep the PRINTPRO3D WhatsApp browser open and signed in. Only new booking confirmations are queued.</p>
+<p>“Sent” means WhatsApp showed a sent check mark, not that the customer read it. “Needs review” messages are never retried automatically.</p>
+<table><thead><tr><th>Order</th><th>Status</th><th>Message</th></tr></thead><tbody>
+{% for m in messages %}<tr><td><a href="/orders/{{ m.order_id }}">PP3D-{{ '%06d'|format(m.order_id) }}</a></td><td>{{ m.state|replace('_',' ') }}<br><small>{{ m.detail }}</small>{% if m.state=='blocked' %}<form method="post" action="/whatsapp/{{ m.id }}/retry"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button>Retry after checking browser</button></form>{% endif %}</td><td style="white-space:pre-line">{{ m.body }}</td></tr>
+{% else %}<tr><td colspan="3">No tracking messages yet. Your next successful FDE booking will appear here.</td></tr>{% endfor %}
+</tbody></table>{% endblock %}

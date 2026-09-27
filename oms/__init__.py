@@ -12,7 +12,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms
+from . import automation, labels, sms, whatsapp
 
 
 SCHEMA = '''
@@ -84,6 +84,7 @@ def create_app(config=None):
         automation.migrate(db())
         labels.migrate(db())
         sms.migrate(db())
+        whatsapp.migrate(db())
 
     @app.context_processor
     def automation_context():
@@ -275,13 +276,32 @@ def create_app(config=None):
         if row['order_status']=='dispatched':
             message=f"Hi {row['name']}, your PRINTPRO3D order {ref} has been handed to FDE courier. Tracking ID: {row['tracking']}. Thank you!"
         elif row['tracking']:
-            message=f"Hi {row['name']}, your PRINTPRO3D order {ref} is being prepared for courier handover. FDE tracking ID: {row['tracking']}. We will update you once dispatched."
+            message=whatsapp.tracking_message(row['name'],order_id,row['tracking'])
         else:
             message=f"Hi {row['name']}, your PRINTPRO3D order {ref} is confirmed and processing. We will share the tracking number when ready. Thank you!"
         response=redirect('https://wa.me/'+phone+'?text='+quote(message,safe=''))
         response.headers['Referrer-Policy']='no-referrer'
         response.headers['Cache-Control']='no-store'
         return response
+
+    @app.get('/whatsapp')
+    @role_required(admin=True)
+    def whatsapp_queue():
+        import time
+        worker = db().execute('SELECT * FROM whatsapp_worker WHERE id=1').fetchone()
+        online = bool(worker and time.time() - worker['heartbeat'] < 90)
+        return render_template('whatsapp.html', messages=db().execute(
+            'SELECT * FROM whatsapp_outbox ORDER BY id DESC LIMIT 200').fetchall(),
+            whatsapp_online=online, whatsapp_status=worker['status'] if online else 'Worker offline')
+
+    @app.post('/whatsapp/<int:message_id>/retry')
+    @role_required(admin=True)
+    def whatsapp_retry(message_id):
+        with db():
+            changed = db().execute("UPDATE whatsapp_outbox SET state='queued',detail='' WHERE id=? AND state='blocked'", (message_id,)).rowcount
+        if not changed:
+            abort(409, 'Only messages blocked before sending can be retried.')
+        return redirect(url_for('whatsapp_queue'))
 
     @app.get('/courier')
     @role_required(admin=True)

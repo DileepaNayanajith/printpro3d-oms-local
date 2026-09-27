@@ -99,3 +99,7 @@ Back up SQLite with its backup API, or stop both app and worker before copying d
 - `instance/`: private runtime data/profile/browser binaries, ignored by Git.
 
 The private GitHub repository contains code only. The staff pilot runs on the owner computer; no internet-hosted service has been provisioned.
+
+### Automatic WhatsApp tracking messages
+
+New successful FDE bookings now queue a WhatsApp tracking update. Start staff services as usual and link WhatsApp in its dedicated Chrome window. The **WhatsApp** page shows the queue and connection. See [WhatsApp setup and recovery](docs/WHATSAPP.md).
