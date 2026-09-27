@@ -22,6 +22,9 @@ def migrate(conn):
     if 'batch_id' not in {r[1] for r in conn.execute('PRAGMA table_info(print_jobs)')}:
         conn.execute('ALTER TABLE print_jobs ADD COLUMN batch_id TEXT')
         conn.execute("UPDATE print_jobs SET state='ready',message='Ready for batch printing' WHERE state='queued'")
+    if 'marked_printed' not in {r[1] for r in conn.execute('PRAGMA table_info(print_jobs)')}:
+        conn.execute('ALTER TABLE print_jobs ADD COLUMN marked_printed INTEGER NOT NULL DEFAULT 0')
+        conn.execute("UPDATE print_jobs SET marked_printed=1 WHERE batch_id IS NOT NULL OR state='spooled'")
     conn.commit()
 
 
@@ -110,7 +113,7 @@ def queue_batch(conn, order_ids):
         if len(rows)!=len(ids) or any(row['state']!='ready' for row in rows):
             raise ValueError('Some selected labels are already queued or printed. Refresh the list.')
         batch=uuid.uuid4().hex
-        conn.execute(f"UPDATE print_jobs SET batch_id=?,state='queued',message='Batch queued for HP printing' WHERE order_id IN ({marks})",[batch]+ids)
+        conn.execute(f"UPDATE print_jobs SET batch_id=?,state='queued',marked_printed=1,message='Batch queued for HP printing' WHERE order_id IN ({marks})",[batch]+ids)
         return batch
 
 

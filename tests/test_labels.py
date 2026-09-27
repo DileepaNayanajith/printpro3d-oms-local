@@ -100,3 +100,14 @@ class LabelFlowTests(unittest.TestCase):
             response=self.client.get('/orders/1/label')
         self.assertEqual(response.status_code,422)
         self.assertIn(b'No print was queued',response.data)
+
+    def test_print_selected_immediately_unlocks_scan_while_job_stays_queued(self):
+        self.assertEqual(self.post('/labels',{'orders':['1']}).status_code,302)
+        row=self.conn.execute('SELECT state,marked_printed FROM print_jobs').fetchone()
+        self.assertEqual(tuple(row),('queued',1))
+        page=self.client.get('/labels').data
+        self.assertIn(b'Printed',page)
+        self.assertNotIn(b'In print queue',page)
+        self.assertEqual(self.post('/scan',{'reference':'PP3D-000001','waybill_number':'17779999'}).status_code,302)
+        with self.conn:self.conn.execute("UPDATE orders SET status='booked',tracking='17779999'")
+        self.assertEqual(self.post('/orders/1/pack',{}).status_code,302)

@@ -348,8 +348,8 @@ def create_app(config=None):
                 abort(400,'Scan the OMS order barcode first (PP3D-000001).')
             order_id=int(reference.split('-')[1])
             row=get_order(order_id)
-            printed=db().execute("SELECT state FROM print_jobs WHERE order_id=?",(order_id,)).fetchone()
-            if not printed or printed['state']!='spooled':
+            printed=db().execute("SELECT state,marked_printed FROM print_jobs WHERE order_id=?",(order_id,)).fetchone()
+            if not printed or not (printed['marked_printed'] or printed['state']=='spooled'):
                 abort(409,'Print this order label first, then scan its order barcode and courier sticker.')
             try:
                 automation.reserve(db(),order_id,request.form.get('waybill_number',''),
@@ -360,7 +360,7 @@ def create_app(config=None):
             if request.headers.get('Accept')=='application/json':
                 return jsonify(order_id=order_id,name=row['name'],message='Queued for FDE booking')
             return redirect(url_for('scan',sent=order_id))
-        rows=db().execute("""SELECT o.id,l.name,l.product,p.state,p.message FROM orders o
+        rows=db().execute("""SELECT o.id,l.name,l.product,p.state,p.message,p.marked_printed FROM orders o
           JOIN leads l ON l.id=o.lead_id JOIN print_jobs p ON p.order_id=o.id
           JOIN booking_jobs j ON j.order_id=o.id WHERE j.state='pending' ORDER BY o.id""").fetchall()
         return render_template('scan.html',orders=rows,sent=request.args.get('sent'))
@@ -384,7 +384,7 @@ def create_app(config=None):
         get_order(order_id)
         with db():
             db().execute('BEGIN IMMEDIATE')
-            row=db().execute('SELECT state FROM print_jobs WHERE order_id=?',(order_id,)).fetchone()
+            row=db().execute('SELECT state,marked_printed FROM print_jobs WHERE order_id=?',(order_id,)).fetchone()
             if row:
                 if row['state'] in ('queued','rendering','sending'):abort(409,'Print is already pending.')
                 if row['state']!='ready' and request.form.get('checked')!='yes':abort(400,'Check the printer queue and confirm you need another copy.')
@@ -513,7 +513,7 @@ def create_app(config=None):
     @role_required()
     def pack(order_id):
         with db():
-            changed = db().execute("UPDATE orders SET status='packed' WHERE id=? AND status='booked' AND (waybill IS NOT NULL OR EXISTS(SELECT 1 FROM print_jobs p WHERE p.order_id=orders.id AND p.state='spooled'))",(order_id,)).rowcount
+            changed = db().execute("UPDATE orders SET status='packed' WHERE id=? AND status='booked' AND (waybill IS NOT NULL OR EXISTS(SELECT 1 FROM print_jobs p WHERE p.order_id=orders.id AND (p.marked_printed=1 OR p.state='spooled')))",(order_id,)).rowcount
             if not changed:
                 abort(409,'Packing requires a booked order and a printed parcel label.')
             event(order_id,'packed')
