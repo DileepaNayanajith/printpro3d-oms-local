@@ -11,3 +11,7 @@ This uses WhatsApp Web UI automation, not the official WhatsApp Business API. Lo
 Implementation: a SQLite trigger captures future booking confirmations even from an already-running FDE worker. The hook and worker both insert idempotently by unique order ID. The worker verifies the visible contact phone and full draft, commits `sending` before clicking Send, and observes a new outgoing bubble with matching text and a sent check mark. Interrupted or ambiguous sends never retry automatically. A local process lock permits one worker.
 
 The ignored `instance/whatsapp-browser-profile/` contains the linked session; protect it like a password and do not upload it. No login credentials or session files are committed. A setup test can be sent only to an explicitly authorized number with `whatsapp_worker.py --test-number NUMBER`; its persistent local marker prevents automatic repetition after a crash.
+
+## Caller confirmation requests
+
+Open **Confirm via WhatsApp** and enter the customer's name and mobile number. Submit queues the rack details and a request to reply YES. Pricing currently follows “more than 2”: 1–2 racks cost Rs.1,850 each; 3+ cost Rs.1,750 each. This sends text only. It does not create an order, courier booking, or label. Replies are checked in WhatsApp before the caller creates an order. Requests have their own message log; the tracking-message queue is unchanged. Duplicate form submissions reuse the request, and the same number cannot receive another request within 24 hours or while an earlier request is unresolved.

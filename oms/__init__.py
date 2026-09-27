@@ -12,7 +12,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp
+from . import automation, labels, sms, whatsapp, confirmations
 
 
 SCHEMA = '''
@@ -85,6 +85,7 @@ def create_app(config=None):
         labels.migrate(db())
         sms.migrate(db())
         whatsapp.migrate(db())
+        confirmations.migrate(db())
 
     @app.context_processor
     def automation_context():
@@ -283,6 +284,20 @@ def create_app(config=None):
         response.headers['Referrer-Policy']='no-referrer'
         response.headers['Cache-Control']='no-store'
         return response
+
+    @app.route('/confirmations',methods=['GET','POST'])
+    @role_required(admin=True)
+    def confirmation_desk():
+        error=None
+        if request.method=='POST':
+            try:
+                mid=confirmations.queue(db(),request.form.get('name',''),request.form.get('phone',''),request.form.get('request_key',''))
+                return redirect(url_for('confirmation_desk',sent=mid))
+            except ValueError as exc:
+                error=str(exc)
+        return render_template('confirmations.html',error=error,sent=request.args.get('sent'),
+            preview=confirmations.message('Customer'),
+            messages=db().execute('SELECT * FROM whatsapp_confirmations ORDER BY id DESC LIMIT 100').fetchall()),400 if error else 200
 
     @app.get('/whatsapp')
     @role_required(admin=True)

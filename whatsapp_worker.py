@@ -66,14 +66,14 @@ def main():
                         with conn:
                             conn.execute('INSERT OR REPLACE INTO whatsapp_worker VALUES(1,?,?)', (int(time.time()), status))
                         if adapter.signed_in():
-                            try:
-                                whatsapp.send_one(conn, adapter)
-                            except LoginRequired:
-                                pass
-                            except Exception:
-                                # No Send click occurred; keep other orders moving.
-                                with conn:
-                                    conn.execute("UPDATE whatsapp_outbox SET state='blocked',detail='Could not verify the recipient or draft. Check the WhatsApp browser before retrying.' WHERE id=(SELECT id FROM whatsapp_outbox WHERE state='queued' ORDER BY id LIMIT 1)")
+                            for table in ('whatsapp_outbox','whatsapp_confirmations'):
+                                try:
+                                    whatsapp.send_one(conn, adapter, table)
+                                except LoginRequired:
+                                    break
+                                except Exception:
+                                    with conn:
+                                        conn.execute(f"UPDATE {table} SET state='blocked',detail='Could not verify the recipient or draft. Check WhatsApp before retrying.' WHERE id=(SELECT id FROM {table} WHERE state='queued' ORDER BY id LIMIT 1)")
                         page.wait_for_timeout(3000)
                 except KeyboardInterrupt:
                     pass

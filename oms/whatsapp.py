@@ -62,22 +62,25 @@ def queue(conn, order_id):
 
 def recover(conn):
     with conn:
+        conn.execute("UPDATE whatsapp_confirmations SET state='needs_review',detail='Worker stopped during send. Check WhatsApp before resending.' WHERE state='sending'")
         conn.execute("UPDATE whatsapp_outbox SET state='needs_review',detail='Worker stopped during send. Check WhatsApp before any manual resend.' WHERE state='sending'")
 
 
-def send_one(conn, browser):
+def send_one(conn, browser, table='whatsapp_outbox'):
+    if table not in ('whatsapp_outbox','whatsapp_confirmations'):
+        raise ValueError('Unknown message queue.')
     """Preparation is retryable; once sending is committed, never retry automatically."""
-    row = conn.execute("SELECT * FROM whatsapp_outbox WHERE state='queued' ORDER BY id LIMIT 1").fetchone()
+    row = conn.execute(f"SELECT * FROM {table} WHERE state='queued' ORDER BY id LIMIT 1").fetchone()
     if not row:
         return False
     if time.time() - row['created_at'] > 86400:
         with conn:
-            conn.execute("UPDATE whatsapp_outbox SET state='stale',detail='Older than 24 hours; send manually if still relevant.' WHERE id=?", (row['id'],))
+            conn.execute(f"UPDATE {table} SET state='stale',detail='Older than 24 hours; send manually if still relevant.' WHERE id=?", (row['id'],))
         return True
     # Prepare verifies the recipient and complete draft without sending.
     browser.prepare(row['phone'], row['body'])
     with conn:
-        claimed = conn.execute("UPDATE whatsapp_outbox SET state='sending',updated_at=? WHERE id=? AND state='queued'", (int(time.time()), row['id'])).rowcount
+        claimed = conn.execute(f"UPDATE {table} SET state='sending',updated_at=? WHERE id=? AND state='queued'", (int(time.time()), row['id'])).rowcount
     if not claimed:
         return False
     try:
@@ -86,5 +89,5 @@ def send_one(conn, browser):
     except Exception:
         state, detail = 'needs_review', 'Send result uncertain. Check the customer chat; automatic retry is disabled.'
     with conn:
-        conn.execute('UPDATE whatsapp_outbox SET state=?,detail=?,updated_at=? WHERE id=?', (state, detail, int(time.time()), row['id']))
+        conn.execute(f'UPDATE {table} SET state=?,detail=?,updated_at=? WHERE id=?', (state, detail, int(time.time()), row['id']))
     return True
