@@ -19,8 +19,10 @@ def main():
     profile = root / 'whatsapp-browser-profile'
     profile.mkdir(mode=0o700, exist_ok=True)
     os.chmod(profile, 0o700)
+    stopping = False
     def stop(*_):
-        raise KeyboardInterrupt()
+        nonlocal stopping
+        stopping = True
     signal.signal(signal.SIGTERM, stop)
     from playwright.sync_api import sync_playwright
     with (root / 'whatsapp-worker.lock').open('w') as lock:
@@ -60,7 +62,7 @@ def main():
                             raise
                         marker.write_text('sent: WhatsApp check mark observed')
                         print('Test sent; WhatsApp check mark observed.', flush=True)
-                    while True:
+                    while not stopping:
                         whatsapp.ingest(conn)
                         status = 'Connected — automatic tracking messages enabled' if adapter.signed_in() else 'Login required — link WhatsApp in Chrome'
                         with conn:

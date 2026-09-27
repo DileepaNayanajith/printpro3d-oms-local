@@ -10,5 +10,5 @@
 <button>Send details & ask to confirm</button></form><p class="muted">Replies arrive in WhatsApp. Check the customer's YES reply before adding their order in Orders.</p></section>
 <section><h2>Message preview</h2><p style="white-space:pre-line">{{ preview }}</p></section></div>
 <section><h2>Recent requests</h2><a href="/confirmations">Refresh status</a><div class="scroll"><table><tr><th>Customer</th><th>WhatsApp</th><th>Message status</th></tr>
-{% for m in messages %}<tr><td>{{ m.name }}</td><td>+{{ m.phone }}</td><td>{{ m.state|replace('_',' ') }}<br><small>{{ m.detail }}</small></td></tr>{% else %}<tr><td colspan="3">No messages yet.</td></tr>{% endfor %}
+{% for m in messages %}<tr><td>{{ m.name }}</td><td>+{{ m.phone }}</td><td>{{ m.state|replace('_',' ') }}<br><small>{{ m.detail }}</small>{% if m.state=='blocked' %}<form method="post" action="/confirmations/{{ m.id }}/retry"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="secondary">Retry sending</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="3">No messages yet.</td></tr>{% endfor %}
 </table></div></section>{% endblock %}

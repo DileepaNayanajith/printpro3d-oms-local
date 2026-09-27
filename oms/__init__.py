@@ -299,6 +299,15 @@ def create_app(config=None):
             preview=confirmations.message('Customer'),
             messages=db().execute('SELECT * FROM whatsapp_confirmations ORDER BY id DESC LIMIT 100').fetchall()),400 if error else 200
 
+    @app.post('/confirmations/<int:message_id>/retry')
+    @role_required(admin=True)
+    def confirmation_retry(message_id):
+        with db():
+            changed=db().execute("UPDATE whatsapp_confirmations SET state='queued',detail='' WHERE id=? AND state='blocked'",(message_id,)).rowcount
+        if not changed:
+            abort(409,'Only messages blocked before sending can be retried.')
+        return redirect(url_for('confirmation_desk'))
+
     @app.get('/whatsapp')
     @role_required(admin=True)
     def whatsapp_queue():

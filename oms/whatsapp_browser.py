@@ -26,10 +26,16 @@ class WhatsAppBrowser:
         self.page.get_by_test_id('conversation-info-header').click(timeout=10000)
         drawer = self.page.get_by_test_id('chat-info-drawer')
         drawer.get_by_test_id('contact-info-header').wait_for(timeout=10000)
-        text = drawer.inner_text()
-        numbers = [re.sub(r'\D', '', line) for line in text.splitlines()
-                   if re.fullmatch(r'\+?[\d ()-]{10,22}', line.strip())]
-        if phone not in numbers:
+        matched = False
+        for _ in range(20):
+            text = drawer.inner_text()
+            numbers = [re.sub(r'\D', '', line) for line in text.splitlines()
+                       if re.fullmatch(r'\+?[\d ()-]{10,22}', line.strip())]
+            if phone in numbers:
+                matched = True
+                break
+            self.page.wait_for_timeout(250)
+        if not matched:
             raise RuntimeError('Contact phone does not match the order.')
         drawer.get_by_role('button', name='Close', exact=True).click()
 
@@ -43,9 +49,14 @@ class WhatsAppBrowser:
             raise LoginRequired('Link WhatsApp in the worker browser.')
         self.page.goto('https://web.whatsapp.com/send?' + urlencode({'phone': phone, 'text': body}))
         self.compose().wait_for(timeout=60000)
-        self.verify_recipient(phone)
+        # WhatsApp may expose the composer before it applies the linked draft.
+        for _ in range(40):
+            if normalized(self.compose().inner_text()) == normalized(body):
+                break
+            self.page.wait_for_timeout(250)
         if normalized(self.compose().inner_text()) != normalized(body):
             raise RuntimeError('The WhatsApp draft differs from the queued message.')
+        self.verify_recipient(phone)
         self.before = set(self.page.locator('#main [data-id]').evaluate_all(
             '(els) => els.map(e => e.getAttribute("data-id"))'))
 
