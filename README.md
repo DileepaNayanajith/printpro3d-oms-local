@@ -120,3 +120,11 @@ individual observation times. Actionable queues scan up to 20 pages; historical
 reports sample their latest page for matching OMS tracking numbers. Unmatched
 orders stay Unknown. A failed refresh preserves previous results. Courier data is
 a snapshot; refresh again to see later changes.
+
+### Cloud and Windows home station
+
+The optional cloud deployment keeps orders online while a Windows PC handles printing,
+FDE and WhatsApp. See [deployment and cutover instructions](docs/CLOUD-AND-WINDOWS.md).
+The existing local mode remains the default. Build the source-only Windows setup
+package with `python build_station.py`; never bundle the `instance` folder.
+Cloud hosting and physical Windows commissioning are separate from automated tests.

@@ -4,6 +4,8 @@ import io
 import os
 import re
 import secrets
+import time
+import hashlib
 from urllib.parse import quote
 import sqlite3
 from decimal import Decimal, InvalidOperation
@@ -12,7 +14,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports
+from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote
 
 
 SCHEMA = '''
@@ -42,8 +44,8 @@ CREATE TABLE IF NOT EXISTS events (
 
 
 def create_app(config=None):
-    app = Flask(__name__, instance_relative_config=True)
-    app.config.update(SECRET_KEY=os.environ.get('OMS_SECRET') or secrets.token_hex(32),
+    app = Flask(__name__, instance_relative_config=True, instance_path=os.environ.get('OMS_INSTANCE_PATH'))
+    app.config.update(CLOUD_MODE=os.environ.get('OMS_CLOUD') == '1', SECRET_KEY=os.environ.get('OMS_SECRET') or secrets.token_hex(32),
                       DATABASE=str(Path(app.instance_path) / 'oms.sqlite3'),
                       ADMIN_PASSWORD=os.environ.get('OMS_ADMIN_PASSWORD'),
                       PACKER_PASSWORD=os.environ.get('OMS_PACKER_PASSWORD'),
@@ -88,6 +90,16 @@ def create_app(config=None):
         confirmations.migrate(db())
         dashboard.migrate(db())
         fde_reports.migrate(db())
+        remote.migrate(db())
+        db().execute('CREATE TABLE IF NOT EXISTS login_limits (bucket TEXT PRIMARY KEY, started INTEGER NOT NULL, attempts INTEGER NOT NULL)')
+        db().commit()
+
+    remote.register(app,db)
+
+    @app.get('/healthz')
+    def healthz():
+        db().execute('SELECT 1')
+        return jsonify(ok=True)
 
     @app.context_processor
     def automation_context():
@@ -122,6 +134,9 @@ def create_app(config=None):
 
     @app.before_request
     def guard():
+        if request.endpoint=='healthz':return
+        if request.blueprint=='station':return  # Bearer authentication; no cookie authority.
+        if app.config['CLOUD_MODE'] and not has_users():abort(503,'Owner account must be configured before use.')
         # Unconfigured demo must remain loopback-only, including against DNS rebinding.
         if not app.config['ADMIN_PASSWORD'] and not has_users() and request.host.split(':')[0] not in ('localhost', '127.0.0.1'):
             abort(403)
@@ -146,6 +161,16 @@ def create_app(config=None):
     def login():
         if request.method == 'POST':
             username = request.form.get('username','').strip().lower()
+            if app.config['CLOUD_MODE']:
+                # Per account throttling is independent of proxy header trust.
+                now=int(time.time())
+                bucket=hashlib.sha256(username.encode()).hexdigest()
+                with db():
+                    db().execute('BEGIN IMMEDIATE')
+                    db().execute('DELETE FROM login_limits WHERE started<?',(now-900,))
+                    limit=db().execute('SELECT attempts FROM login_limits WHERE bucket=?',(bucket,)).fetchone()
+                    if limit and limit[0]>=10:abort(429,'Too many sign-in attempts. Try again in 15 minutes.')
+                    db().execute('INSERT INTO login_limits VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE SET attempts=attempts+1',(bucket,now))
             if has_users():
                 user = db().execute('SELECT * FROM users WHERE username=? AND active=1',(username,)).fetchone()
                 if not user or not check_password_hash(user['password_hash'],request.form.get('password','')):
@@ -156,6 +181,8 @@ def create_app(config=None):
                 expected = app.config.get('ADMIN_PASSWORD' if role == 'admin' else 'PACKER_PASSWORD')
                 if role not in ('admin', 'packer') or not expected or not secrets.compare_digest(request.form.get('password', ''), expected):
                     abort(400, 'Invalid sign-in.')
+            if app.config['CLOUD_MODE']:
+                with db():db().execute('DELETE FROM login_limits WHERE bucket=?',(bucket,))
             session.clear()
             session.update(role=role, csrf=secrets.token_hex(24))
             if username and has_users():
@@ -167,6 +194,21 @@ def create_app(config=None):
     def logout():
         session.clear()
         return redirect('/login')
+
+    @app.route('/station',methods=['GET','POST'])
+    @role_required(admin=True)
+    def station_settings():
+        if not app.config['CLOUD_MODE']:abort(404)
+        if session.get('role')!='admin':abort(403)
+        token=None
+        if request.method=='POST':
+            if request.form.get('action')=='revoke':
+                with db():db().execute('UPDATE home_station SET enabled=0 WHERE id=1')
+            elif request.form.get('action')=='pair':
+                try:token=remote.issue_token(db())
+                except ValueError as exc:abort(409,str(exc))
+            else:abort(400)
+        return render_template('station.html',now=int(time.time()),health={r['kind']:dict(r) for r in db().execute('SELECT * FROM station_health')},station=db().execute('SELECT enabled,heartbeat,detail FROM home_station WHERE id=1').fetchone(),token=token)
 
     @app.get('/dashboard')
     @role_required(admin=True)

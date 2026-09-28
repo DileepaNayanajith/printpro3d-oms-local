@@ -11,3 +11,6 @@ instance/
 *.pem
 *.key
 .DS_Store
+.venv-windows/
+dist/
+*-migration.zip

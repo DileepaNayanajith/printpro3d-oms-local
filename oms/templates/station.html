@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% block content %}
+<p class="eyebrow">PRINTPRO3D / HOME COMPUTER</p><h1>Connect your home PC</h1>
+<section><h2>Windows packing station</h2><p>The home PC prints labels, books scanned parcels with FDE and sends WhatsApp messages. Orders stay online when it is off.</p>
+<p>{{ 'Home PC online' if station and station.heartbeat and now-station.heartbeat < 30 else 'Home PC offline / not connected' }} · {{ 'Enabled' if station and station.enabled else 'Disconnected / disabled' }}</p>
+<ul>{% for kind,label in [('print','Printer worker'),('fde','FDE browser'),('whatsapp','WhatsApp browser')] %}{% set h=health.get(kind) %}<li>{{ label }}: {{ ('Ready' if h.ready else 'Login / setup needed') if h and now-h.heartbeat < 30 else 'Offline' }}</li>{% endfor %}</ul>
+{% if token %}<div class="notice"><strong>Copy this pairing key into Windows setup now.</strong><p>It is shown once. Keep it private; it permits printing and customer notification jobs.</p><pre>{{ token }}</pre></div>{% endif %}
+<form method="post"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button name="action" value="pair">Create / replace pairing key</button><button class="secondary" name="action" value="revoke">Disconnect home PC</button></form>
+<p class="muted">Replacing the key disconnects the previous PC. Finish active work first. Keep the Windows station app open and sign into its FDE and WhatsApp browser windows.</p></section>
+{% endblock %}

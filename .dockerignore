@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!requirements.txt
+!oms/
+!oms/**
+!manage.py
+!cloud_serve.py
+!cloud_transfer.py
+oms/**/__pycache__/
