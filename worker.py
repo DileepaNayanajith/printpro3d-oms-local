@@ -2,10 +2,11 @@
 import argparse
 import fcntl
 import os
+import signal
 import time
 from pathlib import Path
 
-from oms import create_app
+from oms import create_app, fde_reports
 from oms.automation import (connection, heartbeat, recover_interrupted, claim,
                             prepare_one, submit_one, submit_packed, snapshot, transition)
 from oms.fde_browser import FDEBrowser, PORTAL_URL
@@ -16,6 +17,12 @@ def main():
     parser.add_argument('--login', action='store_true', help='Wait for manual login, then run without restarting the browser')
     parser.add_argument('--enable-submit', action='store_true', help='Allow one submission after packing confirmation or explicit order review')
     args = parser.parse_args()
+    stopping = False
+    def stop(signum, frame):
+        nonlocal stopping
+        stopping = True
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
     app = create_app()
     root = Path(app.instance_path)
     os.environ.setdefault('PLAYWRIGHT_BROWSERS_PATH', str(root / 'browser-binaries'))
@@ -39,10 +46,15 @@ def main():
             active = None
             with connection(app.config['DATABASE']) as conn:
                 recover_interrupted(conn)
+                with conn:
+                    conn.execute("UPDATE fde_report_sync SET state='requested',detail='Resuming interrupted report refresh.' WHERE state='running'")
+                report_page = browser.new_page()
                 print('FDE worker started. Live submit: ' + ('packing confirmation or per-order review required' if args.enable_submit else 'disabled'))
                 try:
-                    while True:
+                    while not stopping:
                         heartbeat(conn, args.enable_submit)
+                        if not conn.execute("SELECT 1 FROM booking_jobs WHERE state IN ('queued','approved','preparing','submitting') OR (state='prepared' AND packing_confirmed=1)").fetchone():
+                            fde_reports.run_requested(conn, report_page, lambda: heartbeat(conn,args.enable_submit))
                         if active is not None:
                             job = snapshot(conn, active)
                             if job['state'] == 'login_required' and adapter.signed_in():

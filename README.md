@@ -103,3 +103,20 @@ The private GitHub repository contains code only. The staff pilot runs on the ow
 ### Automatic WhatsApp tracking messages
 
 New successful FDE bookings now queue a WhatsApp tracking update. Start staff services as usual and link WhatsApp in its dedicated Chrome window. The **WhatsApp** page shows the queue and connection. See [WhatsApp setup and recovery](docs/WHATSAPP.md).
+
+### Business overview
+
+Open **Overview** (`/dashboard`) for saved COD order value, black/white/gray rack totals,
+packing counts and FDE report snapshots. COD value may include delivery charges; it
+is not profit or collected cash. Products marked `TEST ONLY` are excluded.
+Mixed descriptions such as `hw white 2 grey 1` split by colour when their sum matches
+the quantity. Use **Adjust counts** for ambiguous descriptions; this changes analytics
+only, never a courier booking or printed label.
+
+**Refresh FDE data** uses a separate read-only tab in the existing FDE worker and
+starts when no booking is actively being processed. Keep `start_fde.command` running
+and signed in. Reports show account-wide counts, including pre-OMS parcels, with
+individual observation times. Actionable queues scan up to 20 pages; historical
+reports sample their latest page for matching OMS tracking numbers. Unmatched
+orders stay Unknown. A failed refresh preserves previous results. Courier data is
+a snapshot; refresh again to see later changes.

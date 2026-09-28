@@ -12,7 +12,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp, confirmations
+from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports
 
 
 SCHEMA = '''
@@ -86,6 +86,8 @@ def create_app(config=None):
         sms.migrate(db())
         whatsapp.migrate(db())
         confirmations.migrate(db())
+        dashboard.migrate(db())
+        fde_reports.migrate(db())
 
     @app.context_processor
     def automation_context():
@@ -165,6 +167,37 @@ def create_app(config=None):
     def logout():
         session.clear()
         return redirect('/login')
+
+    @app.get('/dashboard')
+    @role_required(admin=True)
+    def dashboard_page():
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        stamp=lambda value: datetime.fromtimestamp(value,ZoneInfo('Asia/Colombo')).strftime('%d %b %Y, %I:%M %p') if value else 'Not synced yet'
+        return render_template('dashboard.html',data=dashboard.overview(db()),
+            totals={r['status']:dict(r) for r in db().execute('SELECT * FROM fde_report_totals')},
+            reports=fde_reports.REPORTS,sync=db().execute('SELECT * FROM fde_report_sync WHERE id=1').fetchone(),stamp=stamp)
+
+    @app.post('/dashboard/refresh-courier')
+    @role_required(admin=True)
+    def dashboard_refresh():
+        fde_reports.request_sync(db())
+        return redirect(url_for('dashboard_page'))
+
+    @app.post('/dashboard/orders/<int:order_id>/racks')
+    @role_required(admin=True)
+    def dashboard_racks(order_id):
+        get_order(order_id)
+        try:
+            counts=[int(request.form.get(k,'')) for k in dashboard.COLORS]
+            if any(n<0 or n>1000 for n in counts):raise ValueError()
+        except ValueError:
+            abort(400,'Enter whole rack counts between 0 and 1000.')
+        with db():
+            db().execute('INSERT OR REPLACE INTO rack_counts VALUES(?,?,?,?,?)',
+              (order_id,*counts,'Confirmed by caller in dashboard'))
+            event(order_id,'Dashboard rack counts corrected: black %d, white %d, gray %d'%tuple(counts))
+        return redirect(url_for('dashboard_page'))
 
     @app.get('/')
     @role_required(admin=True)
