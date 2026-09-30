@@ -1,6 +1,7 @@
 """Authenticated storefront intake. Unverified customer orders enter caller review."""
 import hashlib
 import json
+import os
 import re
 import secrets
 from pathlib import Path
@@ -20,7 +21,7 @@ def register(app, db):
         token = app.config.get('WEBSITE_TOKEN')
         if token is None and not app.config.get('TESTING'):
             path = Path(app.instance_path)/'website-token'
-            token = path.read_text().strip() if path.exists() else ''
+            token = os.environ.get('OMS_WEBSITE_TOKEN', '').strip() or (path.read_text().strip() if path.exists() else '')
         if not token or not secrets.compare_digest(request.headers.get('Authorization', ''), 'Bearer '+token):
             return jsonify(error='Unauthorized'), 401
 

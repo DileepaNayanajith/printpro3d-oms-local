@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from oms import create_app
 
 class WebsiteTests(unittest.TestCase):
@@ -31,3 +32,15 @@ class WebsiteTests(unittest.TestCase):
     def test_validation(self):
         for data in [dict(phone='bad'),dict(quantity=True),dict(total_cents=-1),dict(city=''),dict(payment='paid')]:
             self.assertEqual(self.post(**data).status_code,400)
+
+    def test_private_environment_key_authenticates_cloud_bridge(self):
+        self.app.config.update(TESTING=False, WEBSITE_TOKEN=None)
+        with patch.dict('os.environ', {'OMS_WEBSITE_TOKEN': 'cloud-test-key'}):
+            response=self.client.get('/api/website/account/config',headers={'Authorization':'Bearer cloud-test-key'})
+            self.assertEqual(response.status_code,200)
+            self.assertNotIn('cloud-test-key',response.get_data(as_text=True))
+            self.assertEqual(self.client.get('/api/website/account/config',headers={'Authorization':'Bearer wrong'}).status_code,401)
+
+    def test_explicit_test_key_is_not_overridden_by_environment(self):
+        with patch.dict('os.environ', {'OMS_WEBSITE_TOKEN': 'other-key'}):
+            self.assertEqual(self.client.get('/api/website/account/config',headers={'Authorization':'Bearer test-private-token'}).status_code,200)
