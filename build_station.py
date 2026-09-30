@@ -8,4 +8,6 @@ for folder in ('windows','oms'):
     files.extend(p for p in (root/folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix!='.pyc')
 with zipfile.ZipFile(out/'PRINTPRO3D-Windows-Station.zip','w',zipfile.ZIP_DEFLATED) as z:
     for p in files:z.write(p,p.relative_to(root))
+    z.writestr('INSTALL PRINTPRO3D.cmd', '@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0windows\\Install.ps1"\r\npause\r\n')
+    z.writestr('START HERE.txt', (root/'windows/START HERE.txt').read_text())
 print('Built dist/PRINTPRO3D-Windows-Station.zip — no orders, credentials or browser profiles included.')

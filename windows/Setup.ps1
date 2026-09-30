@@ -1,14 +1,16 @@
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
-if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
-    throw 'Install Python 3.11 (64-bit) from python.org with the Python launcher, then run Setup again.'
-}
-& py -3.11 -m venv .venv-windows
+$python = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'
+if (Test-Path $python) {
+    & $python -m venv .venv-windows
+} elseif (Get-Command py -ErrorAction SilentlyContinue) {
+    & py -3.11 -m venv .venv-windows
+} else { throw 'Install Python 3.11, then run Setup again.' }
 if ($LASTEXITCODE -ne 0) { throw 'Python 3.11 is required. Install it and rerun Setup.' }
 & .\.venv-windows\Scripts\python.exe -m pip install -r requirements.lock.txt
-if ($LASTEXITCODE -ne 0) { throw 'Dependency install failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'Dependency install failed. Check internet access and rerun Setup.' }
 & .\.venv-windows\Scripts\python.exe -m playwright install chromium
-if ($LASTEXITCODE -ne 0) { throw 'Browser install failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'Browser install failed. Check internet access and rerun Setup.' }
 $stationPath = Join-Path $env:LOCALAPPDATA 'PRINTPRO3D-station'
 New-Item -ItemType Directory -Force -Path $stationPath | Out-Null
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name

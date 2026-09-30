@@ -14,7 +14,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote
+from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website
 
 
 SCHEMA = '''
@@ -95,6 +95,7 @@ def create_app(config=None):
         db().commit()
 
     remote.register(app,db)
+    website.register(app,db)
 
     @app.get('/healthz')
     def healthz():
@@ -135,7 +136,7 @@ def create_app(config=None):
     @app.before_request
     def guard():
         if request.endpoint=='healthz':return
-        if request.blueprint=='station':return  # Bearer authentication; no cookie authority.
+        if request.blueprint in ('station','website'):return  # Bearer authentication; no cookie authority.
         if app.config['CLOUD_MODE'] and not has_users():abort(503,'Owner account must be configured before use.')
         # Unconfigured demo must remain loopback-only, including against DNS rebinding.
         if not app.config['ADMIN_PASSWORD'] and not has_users() and request.host.split(':')[0] not in ('localhost', '127.0.0.1'):
@@ -247,7 +248,7 @@ def create_app(config=None):
         query=request.args.get('q','').strip()[:100]
         match='%'+query+'%'
         return render_template('index.html',q=query,
-            leads=db().execute("SELECT * FROM leads WHERE status IN ('new','callback') AND (name LIKE ? OR phone LIKE ?) ORDER BY id DESC",(match,match)).fetchall(),
+            leads=db().execute("SELECT leads.*, (SELECT 'WEB-' || printf('%06d',lead_id) FROM website_orders WHERE lead_id=leads.id) AS website_reference FROM leads WHERE status IN ('new','callback') AND (name LIKE ? OR phone LIKE ?) ORDER BY id DESC",(match,match)).fetchall(),
             orders=db().execute('''SELECT o.*,l.name,l.product,l.quantity,l.cod_cents FROM orders o
             JOIN leads l ON l.id=o.lead_id WHERE l.name LIKE ? OR l.phone LIKE ? OR o.tracking LIKE ? OR
             printf('PP3D-%06d',o.id) LIKE ? ORDER BY o.id DESC''',(match,match,match,match)).fetchall())
@@ -309,15 +310,22 @@ def create_app(config=None):
         row = db().execute('SELECT * FROM leads WHERE id=?',(lead_id,)).fetchone()
         if not row:
             abort(404)
+        website_order=db().execute('SELECT * FROM website_orders WHERE lead_id=?',(lead_id,)).fetchone()
         if request.method == 'POST':
             data = fields()
             action = request.form.get('action','save')
+            if website_order and website_order['payment']=='bank':
+                data['cod_cents']=0
+                if action=='qualify' and not website_order['payment_verified'] and request.form.get('payment_verified')!='yes':
+                    abort(400,'Verify the bank payment slip before confirming this order. COD remains zero.')
             if action not in ('save','qualify','reject','callback'):
                 abort(400, 'Unknown action.')
             if action == 'qualify' and (not all(data[k] for k in ('address','city','product')) or data['weight_g'] <= 0):
                 abort(400, 'Confirm address, city, product and parcel weight before qualifying.')
             with db():
                 db().execute('BEGIN IMMEDIATE')
+                if website_order and website_order['payment']=='bank' and request.form.get('payment_verified')=='yes':
+                    db().execute('UPDATE website_orders SET payment_verified=1 WHERE lead_id=?',(lead_id,))
                 current = db().execute('SELECT status FROM leads WHERE id=?',(lead_id,)).fetchone()
                 if current['status'] == 'qualified':
                     return redirect('/')  # A double-click cannot create another order.
@@ -332,7 +340,18 @@ def create_app(config=None):
                     event(order_id,'qualified; label ready for batch printing')
             return redirect('/')
         duplicate = db().execute('SELECT id FROM leads WHERE phone=? AND id!=?', (row['phone'],lead_id)).fetchall()
-        return render_template('lead.html', lead=row, duplicates=duplicate)
+        return render_template('lead.html', lead=row, duplicates=duplicate,website_order=website_order)
+
+    @app.route('/customer-returns',methods=['GET','POST'])
+    @role_required(admin=True)
+    def customer_returns():
+        if request.method=='POST':
+            state=request.form.get('status','')
+            if state not in ('requested','reviewing','approved','declined','resolved'):abort(400,'Choose a valid status.')
+            with db():db().execute('UPDATE customer_returns SET status=? WHERE id=?',(state,request.form.get('id')))
+            return redirect(url_for('customer_returns'))
+        rows=db().execute('SELECT r.*,l.name,l.phone,l.product FROM customer_returns r JOIN leads l ON l.id=r.lead_id ORDER BY r.id DESC').fetchall()
+        return render_template('customer_returns.html',returns=rows)
 
     @app.get('/orders/<int:order_id>')
     @role_required(admin=True)

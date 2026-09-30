@@ -1,0 +1,30 @@
+PRINTPRO3D HOME PC - QUICK SETUP
+
+1. Right-click the ZIP > Extract All. Do not run setup inside the ZIP.
+2. Open INSTALL PRINTPRO3D.cmd. Keep internet connected.
+3. Review installation prompts for Python and SumatraPDF if missing.
+4. Install your HP printer driver if it is not already installed.
+5. The pairing window asks for the online OMS address, pairing key,
+   SumatraPDF and printer. These are provided after cloud deployment.
+   If they are not ready, choose Connect later. Installation stays saved.
+6. Use PRINTPRO3D Pair PC on the desktop when ready to connect.
+7. Open PRINTPRO3D Start on the desktop. Keep its three windows open.
+   Log into FDE and link WhatsApp in the station's separate browser windows.
+   A login in your usual Chrome window does not automatically sign these in.
+8. Set printer to A4, Landscape, one page per sheet, single-sided.
+   Verify one test print before processing customer labels.
+9. Use the online OMS packing login. A USB barcode scanner acts like a
+   keyboard: click the scan input, scan the order label, then the CCP sticker.
+
+Daily: turn on PC, connect internet, open PRINTPRO3D Start.
+Keep Windows logged in and prevent sleep while work is running.
+When the PC is off, online jobs wait; they resume after it reconnects.
+Do not start a second station or run the old Mac workers after cutover.
+
+No online URL is bundled: cloud deployment and pairing are still required.
+This is an installable source package, not a signed standalone EXE.
+It has been checked on the Mac; Windows/printer verification is still needed.
+
+Uninstall: close station windows and remove the desktop shortcuts and
+%LOCALAPPDATA%\PRINTPRO3D\Station. Login/settings data stays in
+%LOCALAPPDATA%\PRINTPRO3D-station until you intentionally remove it.
