@@ -1,0 +1,17 @@
+{% extends 'base.html' %}{% block content %}
+<div class="handover-phone">
+<p class="eyebrow">{{ 'PACKING / COURIER HANDOVER' if scanner else 'COURIER HANDOVER REPORT' }}</p>
+<h1>{{ 'Scan parcel out' if scanner else 'Parcels handed to courier' }}</h1>
+<div class="stats"><div class="stat"><small>{{ 'TODAY' if data.day==data.today else data.day }} · PARCELS OUT</small><b id="today-count">{{ data.count }}</b></div><div class="stat"><small>ALL DISPATCHED PARCELS</small><b id="total-count">{{ data.total }}</b></div></div>
+{% if scanner %}
+<p>At courier handover, scan the <strong>PP3D order barcode</strong>. A successful scan marks the parcel out of the store. Check the name and COD shown below.</p>
+<button type="button" id="camera-start">Open phone camera</button><button type="button" class="secondary" id="camera-stop" hidden>Stop camera</button>
+<video id="scan-video" playsinline muted hidden></video>
+<form id="handover-form" method="post" action="/packing/handover"><input type="hidden" name="csrf" value="{{ session.csrf }}"><label>Scan or enter order ID<input id="barcode" name="barcode" placeholder="PP3D-000014" autocomplete="off" autocapitalize="characters" required></label><button id="record-button">Record parcel out</button></form>
+<section id="scan-result" role="status" aria-live="polite" hidden></section><button id="next-parcel" type="button" hidden>Scan next parcel</button>
+{% else %}<form method="get"><label>Handover date (Sri Lanka)<input type="date" name="date" value="{{ data.day }}" required></label><button>Show count</button></form>{% endif %}
+{% if not scanner %}<section><h2>{{ data.count }} parcels · {{ data.day }}</h2><p>Counts are per parcel, not item quantity. All dispatched includes older parcels; daily counts start from recorded handovers.</p>{% for row in data.rows %}<article><strong>PP3D-{{ '%06d' % row.order_id }} · {{ row.name }}</strong><p>COD Rs. {{ '{:,.2f}'.format(row.cod_cents/100) }} · {{ row.local_time }} · {{ row.actor }}</p></article>{% else %}<p>No handovers recorded for this date.</p>{% endfor %}</section>{% endif %}
+</div>
+<style>.handover-phone{max-width:720px;margin:auto}.handover-phone button{min-height:48px}.handover-phone input{font-size:20px}.handover-phone video{width:100%;max-height:300px;object-fit:cover;background:#111;margin-top:15px;border-radius:16px}.handover-phone [hidden]{display:none!important}#scan-result{border:2px solid #22c55e}#scan-result.error{border-color:#ef4444}.handover-phone article{border-bottom:1px solid #ddd;padding:12px 0}</style>
+{% if scanner %}<script src="{{ url_for('static',filename='vendor/zxing.min.js') }}" defer></script><script src="{{ url_for('static',filename='handover.js') }}" defer></script>{% endif %}
+{% endblock %}

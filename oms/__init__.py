@@ -14,7 +14,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website
+from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover
 
 
 SCHEMA = '''
@@ -91,6 +91,7 @@ def create_app(config=None):
         dashboard.migrate(db())
         fde_reports.migrate(db())
         remote.migrate(db())
+        handover.migrate(db())
         db().execute('CREATE TABLE IF NOT EXISTS login_limits (bucket TEXT PRIMARY KEY, started INTEGER NOT NULL, attempts INTEGER NOT NULL)')
         db().commit()
 
@@ -141,6 +142,16 @@ def create_app(config=None):
         # Unconfigured demo must remain loopback-only, including against DNS rebinding.
         if not app.config['ADMIN_PASSWORD'] and not has_users() and request.host.split(':')[0] not in ('localhost', '127.0.0.1'):
             abort(403)
+        if session.get('username'):
+            account=db().execute('SELECT active,packing_only FROM users WHERE username=?',(session['username'],)).fetchone()
+            if not account or not account['active']:
+                for key in ('username','role','packing_only'):session.pop(key,None)
+                if request.endpoint not in ('login','static'):return redirect('/login')
+            else:
+                session['packing_only']=bool(account['packing_only'])
+                if account['packing_only']:
+                    if request.path=='/':return redirect('/packing')
+                    if request.endpoint not in ('login','logout','static','packing','packing_handover'):abort(403)
         session.setdefault('csrf', secrets.token_hex(24))
         if request.method == 'POST' and not secrets.compare_digest(request.form.get('csrf', ''), session['csrf']):
             abort(400, 'Form expired. Reload and try again.')
@@ -185,7 +196,7 @@ def create_app(config=None):
             if app.config['CLOUD_MODE']:
                 with db():db().execute('DELETE FROM login_limits WHERE bucket=?',(bucket,))
             session.clear()
-            session.update(role=role, csrf=secrets.token_hex(24))
+            session.update(role=role, csrf=secrets.token_hex(24), packing_only=bool(user['packing_only']) if has_users() else False)
             if username and has_users():
                 session['username']=username
             return redirect('/packing' if role == 'packer' else '/')
@@ -616,6 +627,7 @@ def create_app(config=None):
     @app.get('/packing')
     @role_required()
     def packing():
+        if session.get('packing_only'):return render_template('handover.html',data=handover.report(db()),scanner=True)
         status=request.args.get('status','active')
         if status not in ('active','packed','dispatched','all'):
             status='active'
@@ -640,12 +652,25 @@ def create_app(config=None):
     @app.post('/orders/<int:order_id>/dispatch')
     @role_required()
     def dispatch(order_id):
-        with db():
-            changed=db().execute("UPDATE orders SET status='dispatched' WHERE id=? AND status='packed' AND tracking IS NOT NULL",(order_id,)).rowcount
-            if not changed:abort(409,'Only a packed, booked parcel can be handed to the courier.')
-            sms.queue(db(),order_id,'dispatched')
-            event(order_id,'Staff confirmed parcel handed to FDE; dispatch SMS prepared')
+        try:handover.record(db(),'PP3D-%06d'%order_id,session.get('username','local-demo'),scan=False)
+        except ValueError as exc:abort(409,str(exc))
         return redirect('/packing?status=packed')
+
+    @app.post('/packing/handover')
+    @role_required()
+    def packing_handover():
+        try:
+            result=handover.record(db(),request.form.get('barcode',''),session.get('username','local-demo'))
+        except ValueError as exc:return jsonify(error=str(exc)),409
+        stats=handover.report(db())
+        return jsonify(**result,today_count=stats['count'],total_count=stats['total'])
+
+    @app.get('/handovers')
+    @role_required(admin=True)
+    def handover_report():
+        try:data=handover.report(db(),request.args.get('date'))
+        except ValueError as exc:abort(400,str(exc))
+        return render_template('handover.html',data=data,scanner=False)
 
     @app.get('/sms')
     @role_required(admin=True)

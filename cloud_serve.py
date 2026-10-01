@@ -26,6 +26,15 @@ def build_app():
         password=os.environ.get('OMS_PACKING_PASSWORD','')
         if password and not c.execute("SELECT 1 FROM users WHERE username='packing01'").fetchone():
             add_user(c,'packing01','packer',password)
+        # Explicitly provision the phone-only handover account; never reset its password.
+        packing_hash=os.environ.get('OMS_PACKING02_PASSWORD_HASH','')
+        if packing_hash:
+            if not packing_hash.startswith('pbkdf2:sha256:'):raise SystemExit('Invalid packing02 password hash.')
+            existing=c.execute("SELECT role FROM users WHERE username='packing02'").fetchone()
+            if existing and existing['role']!='packer':raise SystemExit('packing02 already has a different role; owner review required.')
+            with c:
+                if not existing:c.execute("INSERT INTO users(username,password_hash,role,packing_only) VALUES('packing02',?,'packer',1)",(packing_hash,))
+                else:c.execute("UPDATE users SET packing_only=1 WHERE username='packing02'")
     settings=root/'printing.json'
     if not settings.exists():
         values={k:os.environ.get('OMS_SENDER_'+k.upper(),'') for k in ('name','address','phone')}
