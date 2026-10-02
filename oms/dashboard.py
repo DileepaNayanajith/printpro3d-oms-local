@@ -34,7 +34,7 @@ def overview(c):
       j.state AS booking_state,r.black,r.white,r.gray,r.note,
       f.status AS courier_status,f.observed_at
       FROM orders o JOIN leads l ON l.id=o.lead_id LEFT JOIN booking_jobs j ON j.order_id=o.id
-      LEFT JOIN rack_counts r ON r.order_id=o.id LEFT JOIN fde_observations f ON f.tracking=o.tracking
+      LEFT JOIN rack_counts r ON r.order_id=o.id LEFT JOIN fde_observations f ON f.tracking=replace(upper(o.tracking),'CCP','')
       ORDER BY o.id DESC''').fetchall()
     orders=[];excluded=0;colours=Counter();all_colours=Counter();stages=Counter();issues=[]
     handed={'pickup','transferred','processing','dispatched','delivered','rearranged','rescheduled','date_changed','return_pending','return_complete','return_transferred','damaged','hold'}

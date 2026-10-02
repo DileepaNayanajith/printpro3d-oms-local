@@ -14,7 +14,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover
+from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover, courier_followup
 
 
 SCHEMA = '''
@@ -90,6 +90,7 @@ def create_app(config=None):
         confirmations.migrate(db())
         dashboard.migrate(db())
         fde_reports.migrate(db())
+        courier_followup.migrate(db())
         remote.migrate(db())
         handover.migrate(db())
         db().execute('CREATE TABLE IF NOT EXISTS login_limits (bucket TEXT PRIMARY KEY, started INTEGER NOT NULL, attempts INTEGER NOT NULL)')
@@ -230,7 +231,17 @@ def create_app(config=None):
         stamp=lambda value: datetime.fromtimestamp(value,ZoneInfo('Asia/Colombo')).strftime('%d %b %Y, %I:%M %p') if value else 'Not synced yet'
         return render_template('dashboard.html',data=dashboard.overview(db()),
             totals={r['status']:dict(r) for r in db().execute('SELECT * FROM fde_report_totals')},
-            reports=fde_reports.REPORTS,sync=db().execute('SELECT * FROM fde_report_sync WHERE id=1').fetchone(),stamp=stamp)
+            callbacks=courier_followup.rows(db()),now=int(time.time()),reports=fde_reports.REPORTS,sync=db().execute('SELECT * FROM fde_report_sync WHERE id=1').fetchone(),stamp=stamp)
+
+    @app.post('/dashboard/callbacks/<int:order_id>/contacted')
+    @role_required(admin=True)
+    def callback_contacted(order_id):
+        if not db().execute('SELECT 1 FROM orders WHERE id=?',(order_id,)).fetchone():abort(404)
+        with db():
+            db().execute("""INSERT INTO courier_followups(order_id,contacted_at,contacted_by) VALUES(?,?,?)
+              ON CONFLICT(order_id) DO UPDATE SET contacted_at=excluded.contacted_at,contacted_by=excluded.contacted_by""",
+              (order_id,int(time.time()),session.get('username','staff')))
+        return redirect(url_for('dashboard_page')+'#callbacks')
 
     @app.post('/dashboard/refresh-courier')
     @role_required(admin=True)

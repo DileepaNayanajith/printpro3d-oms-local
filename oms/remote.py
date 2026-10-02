@@ -5,7 +5,7 @@ import secrets
 import time
 import uuid
 from flask import Blueprint, abort, current_app, jsonify, request
-from . import automation, whatsapp, fde_reports, labels
+from . import automation, whatsapp, fde_reports, labels, courier_followup
 
 KINDS=('print','fde','whatsapp','confirmation','reports')
 TABLES={'whatsapp':'whatsapp_outbox','confirmation':'whatsapp_confirmations'}
@@ -85,12 +85,16 @@ def claim(c,kind):
                 c.execute("UPDATE print_jobs SET state='rendering',message='Home PC preparing A4 labels' WHERE batch_id=?",(source,))
         elif kind in TABLES:
             table=TABLES[kind]
+            if kind=='confirmation':courier_followup.reconcile(c)
             c.execute(f"UPDATE {table} SET state='stale',detail='Older than 24 hours; check before sending.' WHERE state='queued' AND created_at<?",(now-86400,))
             r=c.execute(f"SELECT * FROM {table} WHERE state='queued' ORDER BY id LIMIT 1").fetchone()
             if r:
                 payload=dict(r);source=str(r['id'])+':'+uuid.uuid4().hex
                 c.execute(f"UPDATE {table} SET state='preparing',updated_at=? WHERE id=?",(now,r['id']))
         elif kind=='reports':
+            c.execute("""UPDATE fde_report_sync SET state='requested',requested_at=?,detail='Scheduled refresh waiting for home PC'
+              WHERE id=1 AND state NOT IN ('requested','running')
+              AND max(coalesce(finished_at,0),coalesce(requested_at,0))<=?""",(now,now-300))
             r=c.execute("SELECT * FROM fde_report_sync WHERE state='requested'").fetchone()
             if r:
                 source=uuid.uuid4().hex;payload={}
@@ -109,6 +113,9 @@ def arm(c,task_id):
         c.execute('BEGIN IMMEDIATE');expire(c)
         task=c.execute('SELECT * FROM station_tasks WHERE id=?',(task_id,)).fetchone()
         if not task or task['state']!='prepared':abort(409,'Job is no longer safe to start.')
+        if task['kind']=='confirmation':
+            follow=c.execute('SELECT order_id FROM courier_followups WHERE message_id=?',(int(task['source'].split(':')[0]),)).fetchone()
+            if follow and not courier_followup.eligible(c,follow[0],int(time.time())):abort(409,'Courier status changed or expired; do not send.')
         state={'fde':'submitting','print':'sending','whatsapp':'sending','confirmation':'sending','reports':'running'}[task['kind']]
         source_state(c,task,state,'Home PC started one attempt')
         c.execute("UPDATE station_tasks SET state='executing',updated_at=? WHERE id=?",(int(time.time()),task_id))
@@ -159,6 +166,7 @@ def complete(c,task_id,result):
                 if len(rows)==total:c.execute('DELETE FROM fde_observations WHERE status=?',(status,))
                 for tracking,reference in rows.items():c.execute('INSERT OR REPLACE INTO fde_observations VALUES(?,?,?,?)',(tracking,status,reference,now))
             all_done=len(reports)==len(fde_reports.REPORTS)
+            courier_followup.queue_fresh(c)
             c.execute('UPDATE fde_report_sync SET state=?,finished_at=?,detail=? WHERE id=1',('complete' if all_done else 'partial',now,'Home PC refreshed courier reports.' if all_done else 'Some reports could not be read; older counts retained.'))
         c.execute("UPDATE station_tasks SET state='done',result=?,updated_at=? WHERE id=?",(encoded,now,task_id))
 
