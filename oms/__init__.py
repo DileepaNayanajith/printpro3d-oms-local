@@ -14,7 +14,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover, courier_followup
+from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover, courier_followup, site_analytics
 
 
 SCHEMA = '''
@@ -222,6 +222,14 @@ def create_app(config=None):
                 except ValueError as exc:abort(409,str(exc))
             else:abort(400)
         return render_template('station.html',now=int(time.time()),health={r['kind']:dict(r) for r in db().execute('SELECT * FROM station_health')},station=db().execute('SELECT enabled,heartbeat,detail FROM home_station WHERE id=1').fetchone(),token=token)
+
+    @app.get('/website-overview')
+    @role_required(admin=True)
+    def website_overview():
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        stamp=lambda value: datetime.fromtimestamp(value,ZoneInfo('Asia/Colombo')).strftime('%d %b, %I:%M %p') if value else 'Not synced'
+        return render_template('website_overview.html',data=site_analytics.overview(db()),reports=fde_reports.REPORTS,stamp=stamp)
 
     @app.get('/dashboard')
     @role_required(admin=True)

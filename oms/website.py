@@ -6,7 +6,7 @@ import re
 import secrets
 from pathlib import Path
 from flask import Blueprint, request, jsonify
-from . import customers
+from . import customers, site_analytics
 
 
 def register(app, db):
@@ -14,6 +14,7 @@ def register(app, db):
         db().execute("CREATE TABLE IF NOT EXISTS website_orders (request_id TEXT PRIMARY KEY, digest TEXT NOT NULL, lead_id INTEGER NOT NULL REFERENCES leads(id))")
         db().commit()
         customers.migrate(db())
+        site_analytics.migrate(db())
     bp = Blueprint('website', __name__)
 
     @bp.before_request
@@ -24,6 +25,14 @@ def register(app, db):
             token = os.environ.get('OMS_WEBSITE_TOKEN', '').strip() or (path.read_text().strip() if path.exists() else '')
         if not token or not secrets.compare_digest(request.headers.get('Authorization', ''), 'Bearer '+token):
             return jsonify(error='Unauthorized'), 401
+
+    @bp.post('/api/website/visit')
+    def visit():
+        if request.content_length is None or request.content_length>2048:
+            return jsonify(error='Invalid event'),400
+        try:site_analytics.ingest(db(),request.get_json(silent=True))
+        except ValueError:return jsonify(error='Invalid event'),400
+        return '',204
 
     @bp.post('/api/website/orders')
     def intake():
