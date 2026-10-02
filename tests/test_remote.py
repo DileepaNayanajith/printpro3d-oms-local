@@ -42,7 +42,7 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(self.post(tid+'/result',{'outcome':'success'}).status_code,200)
         self.assertEqual(self.post(tid+'/result',{'outcome':'success'}).status_code,200)
         self.assertEqual(self.c.execute('SELECT tracking FROM orders').fetchone()[0],'12345678')
-        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0],1)
+        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0],0)
     def test_uncertain_submission_never_requeues(self):
         self.reserve();t=self.post('poll',{'kind':'fde','ready':True}).json['task']
         self.post(t['id']+'/start');self.post(t['id']+'/result',{'outcome':'uncertain'})

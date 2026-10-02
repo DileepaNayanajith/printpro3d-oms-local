@@ -22,6 +22,9 @@ class WhatsAppTests(unittest.TestCase):
 
     def book(self):
         automation.confirm_booking(self.c, 1, '17779999', 'test')
+        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0],0)
+        with self.c:self.c.execute("UPDATE orders SET status='dispatched' WHERE id=1")
+        whatsapp.ingest(self.c)
 
     def test_queue_only_after_confirmed_booking_and_unique(self):
         whatsapp.queue(self.c, 1)
@@ -32,7 +35,7 @@ class WhatsAppTests(unittest.TestCase):
         self.assertEqual(row['phone'], '94771234567')
         self.assertIn('17779999', row['body'])
         self.assertIn('https://www.fdedomestic.com', row['body'])
-        self.assertNotIn('dispatched', row['body'])
+        self.assertIn('handed to FDE Domestic', row['body'])
         self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0], 1)
 
     def test_failed_booking_does_not_queue(self):
@@ -85,6 +88,9 @@ class WhatsAppTests(unittest.TestCase):
             self.c.execute("UPDATE orders SET tracking='17778888',status='booked'")
             self.c.execute("UPDATE booking_jobs SET state='succeeded'")
         whatsapp.ingest(self.c)
+        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0],0)
+        with self.c:self.c.execute("UPDATE orders SET status='dispatched'")
+        whatsapp.ingest(self.c)
         whatsapp.ingest(self.c)
         self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0], 1)
         self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_booking_events').fetchone()[0], 0)
@@ -101,9 +107,34 @@ class WhatsAppTests(unittest.TestCase):
 
     def test_migration_does_not_backfill_old_bookings(self):
         with self.c:
-            self.c.execute('DROP TRIGGER whatsapp_booking_confirmed')
+            self.c.execute('DROP TRIGGER whatsapp_handover_confirmed')
             self.c.execute("UPDATE orders SET tracking='17778888',status='booked'")
             self.c.execute("UPDATE booking_jobs SET state='succeeded'")
         whatsapp.migrate(self.c)
         whatsapp.ingest(self.c)
         self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0], 0)
+
+    def test_old_unsent_booking_message_waits_for_handover(self):
+        self.book()
+        with self.c:
+            self.c.execute("UPDATE orders SET status='booked'")
+            self.c.execute("UPDATE whatsapp_outbox SET body='Old booking message',created_at=0")
+        whatsapp.migrate(self.c)
+        self.assertEqual(self.c.execute('SELECT state FROM whatsapp_outbox').fetchone()[0],'awaiting_handover')
+        with self.c:self.c.execute("UPDATE orders SET status='dispatched'")
+        whatsapp.ingest(self.c)
+        row=self.c.execute('SELECT * FROM whatsapp_outbox').fetchone()
+        self.assertEqual(row['state'],'queued')
+        self.assertGreater(row['created_at'],0)
+        self.assertIn('handed to FDE Domestic',row['body'])
+
+    def test_already_sent_message_is_not_sent_again_at_handover(self):
+        self.book()
+        with self.c:
+            self.c.execute("UPDATE whatsapp_outbox SET state='sent'")
+            self.c.execute("UPDATE orders SET status='booked'")
+        whatsapp.migrate(self.c)
+        with self.c:self.c.execute("UPDATE orders SET status='dispatched'")
+        whatsapp.ingest(self.c)
+        self.assertEqual(self.c.execute('SELECT state FROM whatsapp_outbox').fetchone()[0],'sent')
+        self.assertEqual(self.c.execute('SELECT count(*) FROM whatsapp_outbox').fetchone()[0],1)

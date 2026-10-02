@@ -2,7 +2,7 @@
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from . import sms
+from . import sms, whatsapp
 
 
 def migrate(c):
@@ -36,6 +36,7 @@ def record(c, barcode, actor, scan=True):
         c.execute('INSERT INTO parcel_handovers(order_id,actor) VALUES(?,?)',(oid,actor))
         c.execute("UPDATE orders SET status='dispatched' WHERE id=?",(oid,))
         sms.queue(c,oid,'dispatched')
+        whatsapp.queue(c,oid)
         c.execute('INSERT INTO events(order_id,actor,action) VALUES(?,?,?)',(oid,actor,'Parcel scanned out of store and handed to courier'))
         return dict(result,duplicate=False)
 

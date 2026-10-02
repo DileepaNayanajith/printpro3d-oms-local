@@ -86,6 +86,7 @@ def claim(c,kind):
         elif kind in TABLES:
             table=TABLES[kind]
             if kind=='confirmation':courier_followup.reconcile(c)
+            if kind=='whatsapp':whatsapp.hold_unhanded(c)
             c.execute(f"UPDATE {table} SET state='stale',detail='Older than 24 hours; check before sending.' WHERE state='queued' AND created_at<?",(now-86400,))
             r=c.execute(f"SELECT * FROM {table} WHERE state='queued' ORDER BY id LIMIT 1").fetchone()
             if r:
@@ -113,6 +114,10 @@ def arm(c,task_id):
         c.execute('BEGIN IMMEDIATE');expire(c)
         task=c.execute('SELECT * FROM station_tasks WHERE id=?',(task_id,)).fetchone()
         if not task or task['state']!='prepared':abort(409,'Job is no longer safe to start.')
+        if task['kind']=='whatsapp':
+            oid=json.loads(task['payload'])['order_id']
+            if not c.execute("SELECT 1 FROM orders WHERE id=? AND status='dispatched'",(oid,)).fetchone():
+                abort(409,'Packing must scan this parcel OUT before messaging.')
         if task['kind']=='confirmation':
             follow=c.execute('SELECT order_id FROM courier_followups WHERE message_id=?',(int(task['source'].split(':')[0]),)).fetchone()
             if follow and not courier_followup.eligible(c,follow[0],int(time.time())):abort(409,'Courier status changed or expired; do not send.')

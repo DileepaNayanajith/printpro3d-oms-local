@@ -40,6 +40,8 @@ class HandoverTests(unittest.TestCase):
         self.assertNotIn('phone',first.json)
         again=self.scan();self.assertTrue(again.json['duplicate']);self.assertEqual(again.json['today_count'],1)
         self.assertEqual(self.c.execute('SELECT COUNT(*) FROM parcel_handovers').fetchone()[0],1)
+        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM whatsapp_outbox').fetchone()[0],1)
+        self.assertIn('handed to FDE Domestic',self.c.execute('SELECT body FROM whatsapp_outbox').fetchone()[0])
         self.assertEqual(self.c.execute('SELECT status FROM orders').fetchone()[0],'dispatched')
         self.assertEqual(self.c.execute('SELECT COUNT(*) FROM events').fetchone()[0],1)
     def test_unbooked_unprinted_and_invalid_barcodes_are_rejected(self):

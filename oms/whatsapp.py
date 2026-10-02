@@ -1,4 +1,4 @@
-"""Durable tracking notifications, created only after a confirmed FDE booking."""
+"""Durable tracking notifications, created only after physical courier handover."""
 import time
 from .sms import mobile_number
 
@@ -17,25 +17,31 @@ def migrate(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS whatsapp_booking_events (
       order_id INTEGER PRIMARY KEY REFERENCES orders(id)
     )''')
-    conn.execute('''CREATE TRIGGER IF NOT EXISTS whatsapp_booking_confirmed
-      AFTER UPDATE OF state ON booking_jobs
-      WHEN NEW.state='succeeded' AND OLD.state!='succeeded'
-      BEGIN INSERT OR IGNORE INTO whatsapp_booking_events(order_id) VALUES(NEW.order_id); END''')
+    # Preserve the legacy event table for existing workers, but change its trigger.
+    old=conn.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='whatsapp_booking_confirmed'").fetchone()
+    if old:
+        conn.execute('DROP TRIGGER whatsapp_booking_confirmed')
+        conn.execute('DELETE FROM whatsapp_booking_events')
+    conn.execute("""CREATE TRIGGER IF NOT EXISTS whatsapp_handover_confirmed
+      AFTER UPDATE OF status ON orders
+      WHEN NEW.status='dispatched' AND OLD.status!='dispatched'
+      BEGIN INSERT OR IGNORE INTO whatsapp_booking_events(order_id) VALUES(NEW.id); END""")
+    hold_unhanded(conn)
     conn.commit()
 
 
 def ingest(conn):
-    # Also catches confirmations from an FDE worker started before this upgrade.
+    # Capture dispatch events without backfilling historical orders.
     with conn:
         for row in conn.execute('SELECT order_id FROM whatsapp_booking_events').fetchall():
             queue(conn, row[0])
             conn.execute('DELETE FROM whatsapp_booking_events WHERE order_id=?', (row[0],))
 
 
-def tracking_message(name, order_id, tracking):
+def tracking_message(name, order_id, tracking, dispatched=False):
     return (f'Hi {name}, 👋\n\n'
             f'Thank you for choosing *PRINTPRO3D*!\n'
-            f'Your order is being prepared for courier handover and has been registered with *FDE Domestic*.\n\n'
+            f"{'Your parcel has been handed to FDE Domestic for delivery.' if dispatched else 'Your order is being prepared for courier handover and has been registered with FDE Domestic.'}\n\n"
             f'📦 *Order:* PP3D-{order_id:06d}\n'
             f'🚚 *Tracking ID:* {tracking}\n\n'
             'Track your parcel at:\nhttps://www.fdedomestic.com\n'
@@ -45,8 +51,8 @@ def tracking_message(name, order_id, tracking):
 
 def queue(conn, order_id):
     row = conn.execute('''SELECT o.tracking,l.name,l.phone FROM orders o
-      JOIN leads l ON l.id=o.lead_id JOIN booking_jobs j ON j.order_id=o.id
-      WHERE o.id=? AND j.state='succeeded' AND o.tracking IS NOT NULL''', (order_id,)).fetchone()
+      JOIN leads l ON l.id=o.lead_id
+      WHERE o.id=? AND o.status='dispatched' AND o.tracking IS NOT NULL''', (order_id,)).fetchone()
     if not row:
         return
     tracking, name, raw_phone = row
@@ -56,8 +62,18 @@ def queue(conn, order_id):
         phone, state = '', 'invalid_phone'
     now = int(time.time())
     conn.execute('''INSERT OR IGNORE INTO whatsapp_outbox
-      (order_id,phone,body,state,created_at,updated_at) VALUES(?,?,?,?,?,?)''',
-      (order_id, phone, tracking_message(name, order_id, tracking), state, now, now))
+      (order_id,phone,body,state,created_at,updated_at) VALUES(?,?,?,?,?,?)
+      ON CONFLICT(order_id) DO UPDATE SET phone=excluded.phone,body=excluded.body,state=excluded.state,
+      detail='',created_at=excluded.created_at,updated_at=excluded.updated_at
+      WHERE whatsapp_outbox.state='awaiting_handover' ''',
+      (order_id, phone, tracking_message(name, order_id, tracking,dispatched=True), state, now, now))
+
+
+def hold_unhanded(conn):
+    conn.execute("""UPDATE whatsapp_outbox SET state='awaiting_handover',
+      detail='Waiting for packing to scan this parcel OUT.'
+      WHERE state IN ('queued','blocked','stale') AND order_id IN
+      (SELECT id FROM orders WHERE status!='dispatched')""")
 
 
 def recover(conn):
@@ -70,6 +86,8 @@ def send_one(conn, browser, table='whatsapp_outbox'):
     if table not in ('whatsapp_outbox','whatsapp_confirmations'):
         raise ValueError('Unknown message queue.')
     """Preparation is retryable; once sending is committed, never retry automatically."""
+    if table=='whatsapp_outbox':
+        with conn:hold_unhanded(conn)
     row = conn.execute(f"SELECT * FROM {table} WHERE state='queued' ORDER BY id LIMIT 1").fetchone()
     if not row:
         return False
