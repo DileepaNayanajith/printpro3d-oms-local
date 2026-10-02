@@ -14,6 +14,8 @@
       const data=await response.json();if(!response.ok)throw new Error(data.error || 'Could not save. Reload and retry the same order.');
       show(`${data.duplicate?'Already recorded — count unchanged':'OUT OF STORE · Recorded'}\n${data.reference}\n${data.name}\nCOD Rs. ${(data.cod_cents/100).toLocaleString('en-LK',{minimumFractionDigits:2})}`);
       result.style.whiteSpace='pre-line';document.getElementById('today-count').textContent=data.today_count;document.getElementById('total-count').textContent=data.total_count;next.hidden=false;
+      input.value='';
+      input.focus({preventScroll:true});
       if(!data.duplicate)navigator.vibrate?.(100);
     }catch(error){show(error instanceof SyntaxError?'Connection uncertain. Retry the same barcode; it will not be counted twice.':error.message,true)}
     finally{busy=false;submit.disabled=false;start.disabled=false}
