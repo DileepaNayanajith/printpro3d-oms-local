@@ -1,6 +1,6 @@
 {% extends 'base.html' %}{% block content %}
 <div class="hero"><div><p class="eyebrow">PRINTPRO3D / BUSINESS OVERVIEW</p><h1>Your business at a glance.</h1><p class="muted">All-time OMS orders · amounts in LKR · courier timestamps in Sri Lanka time</p></div><a class="button" href="/">Add an order →</a></div>
-<p><a class="button" href="/website-overview">Website visitors & orders →</a> <a class="button" href="/handovers">View parcel handover counts →</a></p>
+{% if profit %}<section><h2>This month · estimated profit</h2><strong style="font-size:30px">Rs. {{ '{:,.2f}'.format(profit.profit/100) }}</strong><p>Delivered value − returned-sale reversals − outgoing courier − return courier − recorded expenses. Missing costs or courier data make this incomplete; this is not cash received.</p><a class="button" href="/finance">Profit, delivered parcels & expenses →</a></section>{% endif %}<p><a class="button" href="/website-overview">Website visitors & orders →</a> <a class="button" href="/handovers">View parcel handover counts →</a></p>
 <div class="stats overview-cards">
 <div class="stat"><small>TOTAL ORDER VALUE / COD</small><b>{{ '{:,.2f}'.format(data.total_value/100) }}</b><span>{{ data.orders|length }} confirmed orders</span></div>
 <div class="stat"><small>RACKS TO SEND</small><b>{{ data.pending_racks }}</b><span>No handover recorded in OMS or observed at FDE</span></div>

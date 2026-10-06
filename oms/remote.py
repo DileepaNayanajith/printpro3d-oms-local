@@ -5,7 +5,7 @@ import secrets
 import time
 import uuid
 from flask import Blueprint, abort, current_app, jsonify, request
-from . import automation, whatsapp, fde_reports, labels, courier_followup
+from . import automation, whatsapp, fde_reports, labels, courier_followup, finance
 
 KINDS=('print','fde','whatsapp','confirmation','reports')
 TABLES={'whatsapp':'whatsapp_outbox','confirmation':'whatsapp_confirmations'}
@@ -116,7 +116,7 @@ def arm(c,task_id):
         if not task or task['state']!='prepared':abort(409,'Job is no longer safe to start.')
         if task['kind']=='whatsapp':
             oid=json.loads(task['payload'])['order_id']
-            if not c.execute("SELECT 1 FROM orders WHERE id=? AND status='dispatched'",(oid,)).fetchone():
+            if not c.execute("SELECT 1 FROM orders WHERE id=? AND status='dispatched' AND NOT EXISTS(SELECT 1 FROM parcel_returns WHERE order_id=orders.id)",(oid,)).fetchone():
                 abort(409,'Packing must scan this parcel OUT before messaging.')
         if task['kind']=='confirmation':
             follow=c.execute('SELECT order_id FROM courier_followups WHERE message_id=?',(int(task['source'].split(':')[0]),)).fetchone()
@@ -172,6 +172,7 @@ def complete(c,task_id,result):
                 for tracking,reference in rows.items():c.execute('INSERT OR REPLACE INTO fde_observations VALUES(?,?,?,?)',(tracking,status,reference,now))
             all_done=len(reports)==len(fde_reports.REPORTS)
             courier_followup.queue_fresh(c)
+            finance.capture(c)
             c.execute('UPDATE fde_report_sync SET state=?,finished_at=?,detail=? WHERE id=1',('complete' if all_done else 'partial',now,'Home PC refreshed courier reports.' if all_done else 'Some reports could not be read; older counts retained.'))
         c.execute("UPDATE station_tasks SET state='done',result=?,updated_at=? WHERE id=?",(encoded,now,task_id))
 

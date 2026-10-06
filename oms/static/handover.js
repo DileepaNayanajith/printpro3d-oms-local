@@ -6,13 +6,13 @@
   function show(message,error=false){result.hidden=false;result.classList.toggle('error',error);result.textContent=message}
   async function record(value){
     if(busy)return;
-    const code=value.trim().toUpperCase();if(!/^PP3D-\d{1,9}$/.test(code)){show('Scan the PP3D order barcode, not the courier sticker.',true);return}
-    input.value=code;busy=true;submit.disabled=true;stopCamera();start.disabled=true;show('Saving parcel handover…');
+    const code=value.trim().toUpperCase(),isReturn=form.dataset.return==='1';if(!(isReturn?/^(?:PP3D-\d{1,9}|(?:CCP)?\d{4,20})$/:/^PP3D-\d{1,9}$/).test(code)){show(isReturn?'Scan a PP3D barcode or FDE sticker.':'Scan the PP3D order barcode, not the courier sticker.',true);return}
+    input.value=code;busy=true;submit.disabled=true;stopCamera();start.disabled=true;show(isReturn?'Recording returned parcel…':'Saving parcel handover…');
     try{
       const response=await fetch(form.action,{method:'POST',body:new FormData(form),headers:{Accept:'application/json'}});
       if(response.redirected){show('Session expired. Sign in again before scanning.',true);return}
       const data=await response.json();if(!response.ok)throw new Error(data.error || 'Could not save. Reload and retry the same order.');
-      show(`${data.duplicate?'Already recorded — count unchanged':'OUT OF STORE · Recorded'}\n${data.reference}\n${data.name}\nCOD Rs. ${(data.cod_cents/100).toLocaleString('en-LK',{minimumFractionDigits:2})}`);
+      show(`${data.duplicate?'Already recorded — count unchanged':(isReturn?'RETURN RECEIVED · Recorded':'OUT OF STORE · Recorded')}\n${data.reference}\n${data.name}\nCOD Rs. ${(data.cod_cents/100).toLocaleString('en-LK',{minimumFractionDigits:2})}`);
       result.style.whiteSpace='pre-line';document.getElementById('today-count').textContent=data.today_count;document.getElementById('total-count').textContent=data.total_count;next.hidden=false;
       input.value='';
       input.focus({preventScroll:true});

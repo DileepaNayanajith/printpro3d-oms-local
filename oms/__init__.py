@@ -14,7 +14,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover, courier_followup, site_analytics
+from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover, courier_followup, site_analytics, finance
 
 
 SCHEMA = '''
@@ -98,6 +98,7 @@ def create_app(config=None):
 
     remote.register(app,db)
     website.register(app,db)
+    with app.app_context():finance.migrate(db())
 
     @app.get('/healthz')
     def healthz():
@@ -152,7 +153,7 @@ def create_app(config=None):
                 session['packing_only']=bool(account['packing_only'])
                 if account['packing_only']:
                     if request.path=='/':return redirect('/packing')
-                    if request.endpoint not in ('login','logout','static','packing','packing_handover'):abort(403)
+                    if request.endpoint not in ('login','logout','static','packing','packing_handover','packing_returns'):abort(403)
         session.setdefault('csrf', secrets.token_hex(24))
         if request.method == 'POST' and not secrets.compare_digest(request.form.get('csrf', ''), session['csrf']):
             abort(400, 'Form expired. Reload and try again.')
@@ -223,6 +224,47 @@ def create_app(config=None):
             else:abort(400)
         return render_template('station.html',now=int(time.time()),health={r['kind']:dict(r) for r in db().execute('SELECT * FROM station_health')},station=db().execute('SELECT enabled,heartbeat,detail FROM home_station WHERE id=1').fetchone(),token=token)
 
+    @app.route('/packing/returns',methods=['GET','POST'])
+    @role_required()
+    def packing_returns():
+        if request.method=='POST':
+            try:return jsonify(finance.receive_return(db(),request.form.get('barcode',''),session.get('username','staff')))
+            except ValueError as exc:return jsonify(error=str(exc)),409
+        counts=dict(count=db().execute('SELECT count(*) FROM parcel_returns WHERE returned_on=?',(finance.today(),)).fetchone()[0],
+          total=db().execute('SELECT count(*) FROM parcel_returns').fetchone()[0],today=finance.today(),day=finance.today())
+        return render_template('handover.html',scanner=True,return_scan=True,data=counts)
+
+    @app.route('/finance',methods=['GET','POST'])
+    @role_required(admin=True)
+    def finance_page():
+        if has_users() and session.get('role')!='admin':abort(403)
+        try:
+            if request.method=='POST':
+                action=request.form.get('action')
+                with db():
+                    if action=='expense':
+                        category=request.form.get('category')
+                        if category not in ('Facebook ads','Filament','Other'):raise ValueError('Choose an expense category.')
+                        key=request.form.get('request_key','')
+                        if not re.fullmatch('[a-f0-9]{32}',key):raise ValueError('Reload this form before saving.')
+                        note=request.form.get('note','').strip()
+                        if len(note)>500:raise ValueError('Keep the note under 500 characters.')
+                        db().execute('INSERT OR IGNORE INTO finance_expenses(spent_on,category,amount_cents,note,actor,request_key) VALUES(?,?,?,?,?,?)',
+                          (finance.date(request.form.get('date')),category,finance.cents(request.form.get('amount')),note,session.get('username','owner'),key))
+                    elif action=='void':
+                        db().execute('UPDATE finance_expenses SET voided=1 WHERE id=?',(request.form.get('id'),))
+                    elif action=='delivery_date':
+                        db().execute("UPDATE finance_deliveries SET delivered_on=?,date_source='Owner corrected' WHERE order_id=?",
+                          (finance.date(request.form.get('date')),request.form.get('order_id')))
+                    elif action=='shipping':
+                        db().execute("UPDATE finance_shipping SET shipped_on=?,cost_cents=?,date_source='Owner corrected' WHERE order_id=?",
+                          (finance.date(request.form.get('date')),finance.cents(request.form.get('amount')),request.form.get('order_id')))
+                    else:raise ValueError('Unknown action.')
+                return redirect(url_for('finance_page',month=request.form.get('month',finance.today()[:7])))
+            data=finance.overview(db(),request.args.get('month'))
+        except ValueError as exc:abort(400,str(exc))
+        return render_template('finance.html',data=data)
+
     @app.get('/website-overview')
     @role_required(admin=True)
     def website_overview():
@@ -237,7 +279,7 @@ def create_app(config=None):
         from datetime import datetime
         from zoneinfo import ZoneInfo
         stamp=lambda value: datetime.fromtimestamp(value,ZoneInfo('Asia/Colombo')).strftime('%d %b %Y, %I:%M %p') if value else 'Not synced yet'
-        return render_template('dashboard.html',data=dashboard.overview(db()),
+        return render_template('dashboard.html',data=dashboard.overview(db()),profit=finance.overview(db()) if session.get('role')=='admin' or not has_users() else None,
             totals={r['status']:dict(r) for r in db().execute('SELECT * FROM fde_report_totals')},
             callbacks=courier_followup.rows(db()),now=int(time.time()),reports=fde_reports.REPORTS,sync=db().execute('SELECT * FROM fde_report_sync WHERE id=1').fetchone(),stamp=stamp)
 
@@ -302,6 +344,11 @@ def create_app(config=None):
                 raise ValueError()
         except (ValueError, InvalidOperation):
             abort(400, 'Check COD, quantity and weight. COD allows two decimal places.')
+        if request.form.get('product_mode')=='hot_wheels':
+            colour=request.form.get('rack_colour','')
+            if colour not in ('black','white','gray'):abort(400,'Choose a rack colour.')
+            data['product']='Hot Wheels rack '+colour
+            data['cod_cents']=(175000 if data['quantity']>=3 else 180000)*data['quantity']+40000
         if any(len(v) > 2000 for v in data.values() if isinstance(v, str)):
             abort(400, 'A field is too long.')
         return data

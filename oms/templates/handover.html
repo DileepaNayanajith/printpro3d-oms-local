@@ -1,13 +1,13 @@
 {% extends 'base.html' %}{% block content %}
 <div class="handover-phone">
 <p class="eyebrow">{{ 'PACKING / COURIER HANDOVER' if scanner else 'COURIER HANDOVER REPORT' }}</p>
-<h1>{{ 'Scan parcel out' if scanner else 'Parcels handed to courier' }}</h1>
-<div class="stats"><div class="stat"><small>{{ 'TODAY' if data.day==data.today else data.day }} · PARCELS OUT</small><b id="today-count">{{ data.count }}</b></div><div class="stat"><small>ALL DISPATCHED PARCELS</small><b id="total-count">{{ data.total }}</b></div></div>
+<h1>{{ 'Scan returned parcel IN' if return_scan else ('Scan parcel out' if scanner else 'Parcels handed to courier') }}</h1>
+<div class="stats"><div class="stat"><small>{{ 'TODAY' if data.day==data.today else data.day }} · {{ 'RETURNS IN' if return_scan else 'PARCELS OUT' }}</small><b id="today-count">{{ data.count }}</b></div><div class="stat"><small>{{ 'ALL RETURNS RECEIVED' if return_scan else 'ALL DISPATCHED PARCELS' }}</small><b id="total-count">{{ data.total }}</b></div></div>
 {% if scanner %}
-<p>At courier handover, scan the <strong>PP3D order barcode</strong>. A successful scan marks the parcel out of the store. Check the name and COD shown below.</p>
+{% if return_scan %}<p>Only scan after the returned parcel physically arrives. Use the PP3D barcode or FDE sticker. Outgoing Rs.400 + return Rs.400 = Rs.800 total courier cost; duplicate scans do not add charges again.</p>{% else %}<p>At courier handover, scan the <strong>PP3D order barcode</strong>. A successful scan marks the parcel out of the store. Check the name and COD shown below.</p>{% endif %}
 <button type="button" id="camera-start">Open phone camera</button><button type="button" class="secondary" id="camera-stop" hidden>Stop camera</button>
 <video id="scan-video" playsinline muted hidden></video>
-<form id="handover-form" method="post" action="/packing/handover"><input type="hidden" name="csrf" value="{{ session.csrf }}"><label>Scan or enter order ID<input id="barcode" name="barcode" placeholder="PP3D-000014" autocomplete="off" autocapitalize="characters" required></label><button id="record-button">Record parcel out</button></form>
+<form id="handover-form" method="post" action="{{ '/packing/returns' if return_scan else '/packing/handover' }}" data-return="{{ 1 if return_scan else 0 }}"><input type="hidden" name="csrf" value="{{ session.csrf }}"><label>Scan or enter order ID<input id="barcode" name="barcode" placeholder="PP3D-000014" autocomplete="off" autocapitalize="characters" required></label><button id="record-button">{{ 'Receive returned parcel' if return_scan else 'Record parcel out' }}</button></form>
 <section id="scan-result" role="status" aria-live="polite" hidden></section><button id="next-parcel" type="button" hidden>Scan next parcel</button>
 {% else %}<form method="get"><label>Handover date (Sri Lanka)<input type="date" name="date" value="{{ data.day }}" required></label><button>Show count</button></form>{% endif %}
 {% if not scanner %}<section><h2>{{ data.count }} parcels · {{ data.day }}</h2><p>Counts are per parcel, not item quantity. All dispatched includes older parcels; daily counts start from recorded handovers.</p>{% for row in data.rows %}<article><strong>PP3D-{{ '%06d' % row.order_id }} · {{ row.name }}</strong><p>COD Rs. {{ '{:,.2f}'.format(row.cod_cents/100) }} · {{ row.local_time }} · {{ row.actor }}</p></article>{% else %}<p>No handovers recorded for this date.</p>{% endfor %}</section>{% endif %}

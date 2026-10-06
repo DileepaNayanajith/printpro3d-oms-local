@@ -51,8 +51,8 @@ def read_report(page,status,heartbeat=lambda: None):
     elif re.search(r'Sorry!\s*No Records',text):total=0
     else:raise RuntimeError('FDE report count could not be read.')
     result={};last=None
-    # Capture full actionable queues (bounded); historical delivery totals only need the first page.
-    limit=20 if status in ('waiting','rearranged','rescheduled','return_pending','hold') else 1
+    # Read bounded history as well as exception queues for delivered-order reconciliation.
+    limit=20 if status in ('waiting','rearranged','rescheduled','return_pending','return_complete','delivered','hold') else 1
     for index in range(limit):
         heartbeat()
         rows=page.locator('table tr').evaluate_all('(rows)=>rows.map(r=>Array.from(r.querySelectorAll("td")).map(c=>c.innerText))')

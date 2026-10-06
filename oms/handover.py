@@ -2,7 +2,7 @@
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from . import sms, whatsapp
+from . import sms, whatsapp, finance
 
 
 def migrate(c):
@@ -24,6 +24,8 @@ def record(c, barcode, actor, scan=True):
           JOIN leads l ON l.id=o.lead_id WHERE o.id=?''',(oid,)).fetchone()
         if not row:raise ValueError('Order not found. Check the label.')
         result=dict(order_id=oid,reference='PP3D-%06d'%oid,name=row['name'],cod_cents=row['cod_cents'])
+        if c.execute('SELECT 1 FROM parcel_returns WHERE order_id=?',(oid,)).fetchone():
+            raise ValueError('This parcel was received as a return. Ask the owner before sending it again.')
         if row['status']=='dispatched':
             if scan:return dict(result,duplicate=True)
             raise ValueError('This parcel is already dispatched.')
@@ -37,6 +39,7 @@ def record(c, barcode, actor, scan=True):
         c.execute("UPDATE orders SET status='dispatched' WHERE id=?",(oid,))
         sms.queue(c,oid,'dispatched')
         whatsapp.queue(c,oid)
+        finance.outbound(c,oid)
         c.execute('INSERT INTO events(order_id,actor,action) VALUES(?,?,?)',(oid,actor,'Parcel scanned out of store and handed to courier'))
         return dict(result,duplicate=False)
 

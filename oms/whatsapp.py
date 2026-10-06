@@ -52,7 +52,7 @@ def tracking_message(name, order_id, tracking, dispatched=False):
 def queue(conn, order_id):
     row = conn.execute('''SELECT o.tracking,l.name,l.phone FROM orders o
       JOIN leads l ON l.id=o.lead_id
-      WHERE o.id=? AND o.status='dispatched' AND o.tracking IS NOT NULL''', (order_id,)).fetchone()
+      WHERE o.id=? AND o.status='dispatched' AND o.tracking IS NOT NULL AND NOT EXISTS(SELECT 1 FROM parcel_returns WHERE order_id=o.id)''', (order_id,)).fetchone()
     if not row:
         return
     tracking, name, raw_phone = row
