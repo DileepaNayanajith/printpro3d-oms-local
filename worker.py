@@ -31,7 +31,7 @@ def main():
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch_persistent_context(str(profile), headless=False)
             page = browser.pages[0] if browser.pages else browser.new_page()
-            # This standalone profile does not borrow the Codex/browser login session.
+            # This dedicated profile is separate from ordinary browser login sessions.
             page.goto(PORTAL_URL)
             if args.login:
                 input('Sign in in the browser, then press Enter here. This same browser will stay open for the worker. ')
