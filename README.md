@@ -48,7 +48,7 @@ Sign into FDE yourself in the dedicated Chromium window. Press Enter in the term
 
 You can also start `python worker.py` directly. If a queued order encounters the login page, it pauses as `login_required`; sign into that open worker window and preparation resumes automatically. No submit is attempted during this login recovery.
 
-The worker opens a visible browser and polls the shared queue. It fills one order and keeps the form open for review; later orders wait. The FDE login in Codex's in-app browser is separate and is not copied. No portal password is requested by or stored in application code. The persistent Chromium profile contains session credentials, so restrict its access and keep it out of Git.
+The worker opens a visible browser and polls the shared queue. It fills one order and keeps the form open for review; later orders wait. FDE logins in other browsers are separate and are not copied. No portal password is requested by or stored in application code. The persistent Chromium profile contains session credentials, so restrict its access and keep it out of Git.
 
 ## Daily pilot flow
 
