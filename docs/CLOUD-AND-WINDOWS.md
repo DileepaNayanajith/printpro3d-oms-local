@@ -32,7 +32,7 @@ Sources checked 28 September 2026:
 ## Deploy a staging service first
 
 1. Owner signs into Railway, approves the selected billing plan, and connects the
-   private `DileepaNayanajith/printpro3d-oms-local` repository and its configured Railway deployment branch
+   private `DileepaNayanajith/printpro3d-oms-local` repository and its configured Railway deployment
    branch. Do not upload local browser profiles, `.env`, logs, or staff-access files.
 2. Build with the included Dockerfile. Create a persistent volume mounted at `/data`.
    Keep exactly one replica and disable automatic sleeping.
