@@ -59,3 +59,25 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.c.execute('SELECT quantity FROM leads').fetchone()[0],1)
         self.assertEqual(self.c.execute('SELECT status FROM orders').fetchone()[0],'awaiting_booking')
         self.assertEqual(self.client.post('/dashboard/orders/1/racks',data=dict(csrf=self.csrf,black=-1,white=0,gray=0)).status_code,400)
+
+    def test_rack_margin_and_dispatch_counts(self):
+        self.order('hw black',2);self.order('hw white',3);self.order('hw gray 3',1)
+        with self.c:
+            self.c.execute("UPDATE orders SET status='dispatched' WHERE id IN (1,3)")
+            self.c.execute("INSERT INTO parcel_handovers(order_id,actor) VALUES(1,'test')")
+            self.c.execute("UPDATE orders SET tracking='CCP12345678' WHERE id=2")
+            self.c.execute("INSERT INTO fde_observations VALUES('12345678','return_complete','PP3D-000002',100)")
+        r=dashboard.overview(self.c)['rack_margin']
+        self.assertEqual(r['dispatched'],5)
+        self.assertEqual(r['unresolved'],1)
+        self.assertEqual(r['material'],49500)
+        self.assertIsNone(r['contribution'])
+        dashboard.save_wear(self.c,'100')
+        r=dashboard.overview(self.c)['rack_margin']
+        self.assertEqual(r['contribution'],125500)
+        self.assertAlmostEqual(r['percent'],1255/1850*100)
+        for value in ('-1','NaN','Infinity','0.001'):
+            with self.assertRaises(ValueError):dashboard.save_wear(self.c,value)
+        self.assertEqual(self.client.post('/dashboard/rack-costs',data={'csrf':self.csrf,'wear':'150'}).status_code,302)
+        self.assertEqual(self.client.post('/dashboard/rack-costs',data={'wear':'150'}).status_code,400)
+        self.assertIn(b'Hot Wheels racks',self.client.get('/dashboard').data)

@@ -251,6 +251,14 @@ def create_app(config=None):
               (order_id,int(time.time()),session.get('username','staff')))
         return redirect(url_for('dashboard_page')+'#callbacks')
 
+    @app.post('/dashboard/rack-costs')
+    @role_required(admin=True)
+    def rack_costs():
+        if has_users() and session.get('role')!='admin':abort(403)
+        try:dashboard.save_wear(db(),request.form.get('wear'))
+        except ValueError as exc:abort(400,str(exc))
+        return redirect(url_for('dashboard_page'))
+
     @app.post('/dashboard/refresh-courier')
     @role_required(admin=True)
     def dashboard_refresh():
