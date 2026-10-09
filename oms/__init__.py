@@ -630,6 +630,7 @@ def create_app(config=None):
             abort(400,str(error))
         except sqlite3.IntegrityError:
             abort(409, 'That tracking number belongs to another order.')
+        if request.accept_mimetypes.best=='application/json':return jsonify(ok=True)
         return redirect(url_for('order',order_id=order_id))
 
     @app.post('/orders/<int:order_id>/waybill')
