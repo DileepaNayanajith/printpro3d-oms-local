@@ -1,7 +1,8 @@
 """Read-only business totals; explicit overrides for ambiguous product descriptions."""
 import re
 from collections import Counter
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from datetime import datetime
 
 COLORS=('black','white','gray')
 ALIASES={'black':'black','blk':'black','white':'white','gray':'gray','grey':'gray'}
@@ -11,6 +12,10 @@ def migrate(c):
       order_id INTEGER PRIMARY KEY REFERENCES orders(id),black INTEGER NOT NULL,
       white INTEGER NOT NULL,gray INTEGER NOT NULL,note TEXT NOT NULL DEFAULT '')''')
     c.execute("CREATE TABLE IF NOT EXISTS rack_cost_settings (id INTEGER PRIMARY KEY CHECK(id=1), wear_cents INTEGER NOT NULL CHECK(wear_cents>=0))")
+    c.execute("""CREATE TABLE IF NOT EXISTS ad_payments (
+      transaction_id TEXT PRIMARY KEY, paid_on TEXT NOT NULL, usd TEXT NOT NULL,
+      rate TEXT NOT NULL, source TEXT NOT NULL, actor TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
     c.commit()
 
 
@@ -64,7 +69,7 @@ def overview(c):
       dispatched=sum(d['racks'] for d in dispatched),colours=shipped_colours,
       unresolved=sum(bool(d['warning']) and bool(re.search(r'\b(hw|hot\s*wheels?|racks?)\b',d['product'],re.I)) for d in dispatched))
     money=sum(d['cod_cents'] for d in orders)
-    return dict(rack_margin=margin,orders=orders,excluded=excluded,colours=colours,all_colours=all_colours,
+    return dict(ad_payments=ad_payment_summary(c),rack_margin=margin,orders=orders,excluded=excluded,colours=colours,all_colours=all_colours,
       total_racks=sum(all_colours.values()),pending_racks=sum(colours.values()),issues=issues,
       total_value=money,stages=stages,to_pack=sum(d['to_send'] and d['status']!='packed' for d in orders),
       ready=sum(d['to_send'] and d['status']=='packed' for d in orders),
@@ -79,3 +84,33 @@ def save_wear(c,value):
         if not value.is_finite() or value<0 or value>1000000 or value!=value.quantize(Decimal('.01')):raise ValueError()
     except (InvalidOperation,ValueError):raise ValueError('Enter a non-negative wear cost with up to two decimal places.')
     with c:c.execute('INSERT OR REPLACE INTO rack_cost_settings VALUES(1,?)',(int(value*100),))
+
+
+def save_ad_payment(c,form,actor):
+    transaction=str(form.get('transaction_id','')).strip()
+    if not re.fullmatch(r'[0-9-]{10,100}',transaction):raise ValueError('Use the Meta transaction ID.')
+    try:
+        paid=datetime.strptime(form.get('paid_on',''),'%Y-%m-%d').date().isoformat()
+        usd=Decimal(form.get('usd',''));rate=Decimal(form.get('rate',''))
+        if not usd.is_finite() or not rate.is_finite() or not 0<usd<=1000000 or not 0<rate<=10000 or usd!=usd.quantize(Decimal('.01')):raise ValueError()
+    except (ValueError,InvalidOperation,TypeError):raise ValueError('Check the payment date, USD amount and exchange rate.')
+    source=str(form.get('source','')).strip()
+    if not source or len(source)>500:raise ValueError('Include a short invoice and exchange-rate source note.')
+    values=(paid,str(usd),str(rate),source)
+    with c:
+        c.execute('BEGIN IMMEDIATE')
+        existing=c.execute('SELECT * FROM ad_payments WHERE transaction_id=?',(transaction,)).fetchone()
+        if existing:
+            if existing['paid_on']!=paid or Decimal(existing['usd'])!=usd or Decimal(existing['rate'])!=rate:raise ValueError('This transaction is already saved with different details. Review before changing it.')
+            return
+        c.execute('INSERT INTO ad_payments(transaction_id,paid_on,usd,rate,source,actor) VALUES(?,?,?,?,?,?)',(transaction,*values,actor))
+
+
+def ad_payment_summary(c):
+    rows=[dict(r) for r in c.execute('SELECT * FROM ad_payments ORDER BY paid_on DESC,transaction_id')]
+    months={};total=Decimal('0')
+    for r in rows:
+        value=Decimal(r['usd'])*Decimal(r['rate'])
+        r['lkr']=format(value.quantize(Decimal('.01'),rounding=ROUND_HALF_UP),',.2f')
+        total+=value;month=r['paid_on'][:7];months[month]=months.get(month,Decimal('0'))+value
+    return dict(rows=rows,total=format(total.quantize(Decimal('.01'),rounding=ROUND_HALF_UP),',.2f'),months={k:format(v.quantize(Decimal('.01'),rounding=ROUND_HALF_UP),',.2f') for k,v in months.items()})

@@ -81,3 +81,17 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.client.post('/dashboard/rack-costs',data={'csrf':self.csrf,'wear':'150'}).status_code,302)
         self.assertEqual(self.client.post('/dashboard/rack-costs',data={'wear':'150'}).status_code,400)
         self.assertIn(b'Hot Wheels racks',self.client.get('/dashboard').data)
+
+    def test_ad_payments_are_idempotent_and_grouped(self):
+        form=dict(transaction_id='1234567890-123456',paid_on='2026-09-28',usd='72.72',rate='330.90',source='Test report')
+        dashboard.save_ad_payment(self.c,form,'owner')
+        dashboard.save_ad_payment(self.c,form,'owner')
+        result=dashboard.ad_payment_summary(self.c)
+        self.assertEqual(len(result['rows']),1)
+        self.assertEqual(result['total'],'24,063.05')
+        self.assertEqual(result['months']['2026-09'],'24,063.05')
+        with self.assertRaises(ValueError):dashboard.save_ad_payment(self.c,dict(form,usd='1'),'owner')
+        for v in ('NaN','-1','Infinity'):
+            with self.assertRaises(ValueError):dashboard.save_ad_payment(self.c,dict(form,rate=v),'owner')
+        self.assertEqual(self.client.post('/dashboard/ad-payments',data=dict(form,csrf=self.csrf)).status_code,302)
+        self.assertEqual(self.client.post('/dashboard/ad-payments',data=form).status_code,400)

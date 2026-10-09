@@ -2,6 +2,7 @@
 <div class="hero"><div><p class="eyebrow">PRINTPRO3D / BUSINESS OVERVIEW</p><h1>Your business at a glance.</h1><p class="muted">All-time OMS orders · amounts in LKR · courier timestamps in Sri Lanka time</p></div><a class="button" href="/">Add an order →</a></div>
 <p><a class="button" href="/website-overview">Website visitors & orders →</a> <a class="button" href="/handovers">View parcel handover counts →</a></p>
 {% include "rack_margin.html" %}
+{% include "ad_payments.html" %}
 <div class="stats overview-cards">
 <div class="stat"><small>TOTAL ORDER VALUE / COD</small><b>{{ '{:,.2f}'.format(data.total_value/100) }}</b><span>{{ data.orders|length }} confirmed orders</span></div>
 <div class="stat"><small>RACKS TO SEND</small><b>{{ data.pending_racks }}</b><span>No handover recorded in OMS or observed at FDE</span></div>
