@@ -6,7 +6,7 @@ import re
 import secrets
 from pathlib import Path
 from flask import Blueprint, request, jsonify
-from . import customers, site_analytics
+from . import customers, site_analytics, meta_conversions
 
 
 def register(app, db):
@@ -15,6 +15,7 @@ def register(app, db):
         db().commit()
         customers.migrate(db())
         site_analytics.migrate(db())
+        meta_conversions.migrate(db())
     bp = Blueprint('website', __name__)
 
     @bp.before_request
@@ -33,6 +34,20 @@ def register(app, db):
         try:site_analytics.ingest(db(),request.get_json(silent=True))
         except ValueError:return jsonify(error='Invalid event'),400
         return '',204
+
+    @bp.post('/api/website/meta/withdraw')
+    def withdraw_meta():
+        data=request.get_json(silent=True)
+        keys=data.get('request_ids') if isinstance(data,dict) else None
+        if not isinstance(keys,list) or len(keys)>100 or any(not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{20,80}',key) for key in keys):
+            return jsonify(error='Invalid request'),400
+        with db():
+            for key in keys:
+                row=db().execute('SELECT lead_id FROM website_orders WHERE request_id=?',(key,)).fetchone()
+                if row:
+                    db().execute('DELETE FROM meta_attribution WHERE lead_id=?',(row['lead_id'],))
+                    db().execute("UPDATE meta_purchase_outbox SET state='withdrawn',payload='{}' WHERE order_id IN (SELECT id FROM orders WHERE lead_id=?) AND state='pending'",(row['lead_id'],))
+        return jsonify(ok=True)
 
     @bp.post('/api/website/orders')
     def intake():
@@ -58,7 +73,8 @@ def register(app, db):
             if payment not in ('cod', 'bank'): raise ValueError()
         except (KeyError, TypeError, ValueError):
             return jsonify(error='Check customer details and order items.'), 400
-        digest = hashlib.sha256(json.dumps({'data':data,'customer_id':customer['id'] if customer else None}, sort_keys=True).encode()).hexdigest()
+        order_data={key:value for key,value in data.items() if key!='meta_attribution'}
+        digest = hashlib.sha256(json.dumps({'data':order_data,'customer_id':customer['id'] if customer else None}, sort_keys=True).encode()).hexdigest()
         with db():
             db().execute('BEGIN IMMEDIATE')
             old = db().execute('SELECT * FROM website_orders WHERE request_id=?', (key,)).fetchone()
@@ -70,6 +86,7 @@ def register(app, db):
             fields.update(quantity=quantity,cod_cents=0 if payment=='bank' else amount,weight_g=0,status='new')
             cur=db().execute('INSERT INTO leads('+','.join(fields)+') VALUES('+','.join('?' for _ in fields)+')',tuple(fields.values()))
             db().execute('INSERT INTO website_orders(request_id,digest,lead_id,customer_id,payment,total_cents) VALUES(?,?,?,?,?,?)',(key,digest,cur.lastrowid,customer['id'] if customer else None,payment,amount))
+            meta_conversions.remember(db(),cur.lastrowid,data.get('meta_attribution'),amount)
             return jsonify(reference='WEB-%06d'%cur.lastrowid, status='received'), 201
     customers.register(bp,app,db)
     app.register_blueprint(bp)

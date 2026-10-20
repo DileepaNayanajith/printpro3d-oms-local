@@ -14,7 +14,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for, Response, send_file, jsonify
-from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover, courier_followup, site_analytics
+from . import automation, labels, sms, whatsapp, confirmations, dashboard, fde_reports, remote, website, handover, courier_followup, site_analytics, meta_conversions
 
 
 SCHEMA = '''
@@ -98,6 +98,7 @@ def create_app(config=None):
 
     remote.register(app,db)
     website.register(app,db)
+    meta_conversions.start_worker(app)
 
     @app.get('/healthz')
     def healthz():
@@ -384,6 +385,7 @@ def create_app(config=None):
                     labels.enqueue(db(),order_id)
                     sms.queue(db(),order_id,'processing')
                     event(order_id,'qualified; label ready for batch printing')
+                    meta_conversions.enqueue(db(),order_id)
             return redirect('/')
         duplicate = db().execute('SELECT id FROM leads WHERE phone=? AND id!=?', (row['phone'],lead_id)).fetchall()
         return render_template('lead.html', lead=row, duplicates=duplicate,website_order=website_order)
