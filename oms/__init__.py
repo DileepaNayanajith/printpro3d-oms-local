@@ -98,6 +98,8 @@ def create_app(config=None):
 
     remote.register(app,db)
     website.register(app,db)
+    from . import order_email
+    order_email.register(app,db)
     meta_conversions.start_worker(app)
 
     @app.get('/healthz')
@@ -218,6 +220,14 @@ def create_app(config=None):
         if request.method=='POST':
             if request.form.get('action')=='revoke':
                 with db():db().execute('UPDATE home_station SET enabled=0 WHERE id=1')
+            elif request.form.get('action') in ('open-fde','open-whatsapp'):
+                kind=request.form['action'].split('-',1)[1]
+                with db():
+                    h=db().execute("SELECT heartbeat FROM station_health WHERE kind='controller'").fetchone()
+                    if not h or int(time.time())-h['heartbeat']>30:abort(409,'Start the Home PC controller on your computer first.')
+                    if not db().execute("SELECT 1 FROM station_controls WHERE kind=? AND state='queued' AND created_at>?",(kind,int(time.time())-300)).fetchone():
+                        db().execute('INSERT INTO station_controls(kind,created_at) VALUES(?,?)',(kind,int(time.time())))
+                return redirect('/station?opening='+kind)
             elif request.form.get('action')=='pair':
                 try:token=remote.issue_token(db())
                 except ValueError as exc:abort(409,str(exc))

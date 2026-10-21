@@ -40,6 +40,8 @@ def build_app():
         values={k:os.environ.get('OMS_SENDER_'+k.upper(),'') for k in ('name','address','phone')}
         if not all(values.values()):raise SystemExit('Configure sender name, address and phone before starting.')
         settings.write_text(json.dumps({'sender':values}))
+    from oms import order_email
+    order_email.start(app)
     return app
 
 if __name__=='__main__':

@@ -6,7 +6,7 @@ import re
 import secrets
 from pathlib import Path
 from flask import Blueprint, request, jsonify
-from . import customers, site_analytics, meta_conversions
+from . import customers, site_analytics, meta_conversions, order_email
 
 
 def register(app, db):
@@ -86,6 +86,7 @@ def register(app, db):
             fields.update(quantity=quantity,cod_cents=0 if payment=='bank' else amount,weight_g=0,status='new')
             cur=db().execute('INSERT INTO leads('+','.join(fields)+') VALUES('+','.join('?' for _ in fields)+')',tuple(fields.values()))
             db().execute('INSERT INTO website_orders(request_id,digest,lead_id,customer_id,payment,total_cents) VALUES(?,?,?,?,?,?)',(key,digest,cur.lastrowid,customer['id'] if customer else None,payment,amount))
+            order_email.remember(db(),cur.lastrowid,data)
             meta_conversions.remember(db(),cur.lastrowid,data.get('meta_attribution'),amount)
             return jsonify(reference='WEB-%06d'%cur.lastrowid, status='received'), 201
     customers.register(bp,app,db)

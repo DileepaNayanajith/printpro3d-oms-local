@@ -24,6 +24,7 @@ def migrate(c):
       payload TEXT NOT NULL, state TEXT NOT NULL, updated_at INTEGER NOT NULL,
       result TEXT, UNIQUE(kind,source));
     ''')
+    c.execute("CREATE TABLE IF NOT EXISTS station_controls(id INTEGER PRIMARY KEY,kind TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'queued',created_at INTEGER NOT NULL)")
     c.commit()
 
 
@@ -187,6 +188,16 @@ def register(app,db):
         row=db().execute('SELECT * FROM home_station WHERE id=1 AND enabled=1').fetchone()
         if not row or not secrets.compare_digest(row['token_hash'],hashlib.sha256(token.encode()).hexdigest()):abort(401)
         if request.method!='POST' or not request.is_json or not isinstance(request.get_json(),dict):abort(400)
+    @bp.post('/control')
+    def control():
+        c=db();now=int(time.time())
+        with c:
+            c.execute('BEGIN IMMEDIATE')
+            c.execute("INSERT OR REPLACE INTO station_health VALUES('controller',?,1)",(now,))
+            c.execute("UPDATE station_controls SET state='expired' WHERE state='queued' AND created_at<?",(now-300,))
+            rows=c.execute("SELECT id,kind FROM station_controls WHERE state='queued' ORDER BY id").fetchall()
+            c.execute("UPDATE station_controls SET state='claimed' WHERE state='queued'")
+        return jsonify(commands=[dict(r) for r in rows])
     @bp.post('/poll')
     def poll():
         data=request.get_json();kind=data.get('kind')
@@ -196,7 +207,7 @@ def register(app,db):
             c.execute('INSERT OR REPLACE INTO station_health VALUES(?,?,?)',(kind,now,int(data.get('ready') is True)))
             c.execute('UPDATE home_station SET heartbeat=?,detail=? WHERE id=1',(now,'Connected'))
             if kind=='fde':automation.heartbeat(c,True)
-            if kind=='whatsapp':c.execute('INSERT OR REPLACE INTO whatsapp_worker VALUES(1,?,?)',(now,'Home PC connected' if data.get('ready') is True else 'Login required on home PC'))
+            if kind in ('whatsapp','confirmation'):c.execute('INSERT OR REPLACE INTO whatsapp_worker VALUES(1,?,?)',(now,'Home PC connected' if data.get('ready') is True else 'Login required on home PC'))
             if kind=='fde' and data.get('ready') is True:
                 c.execute("UPDATE booking_jobs SET state='queued' WHERE state='login_required' AND packing_confirmed=1")
         whatsapp.ingest(c)

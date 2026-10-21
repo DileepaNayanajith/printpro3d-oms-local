@@ -37,6 +37,16 @@ def printer_command(settings,pdf):
     return [str(executable),'-print-to',settings['printer'],'-print-settings','paper=A4,landscape,fit,simplex','-silent',str(pdf)]
 
 
+def new_product_confirmation(task, settings):
+    payload=task.get('payload',{})
+    cutoff=settings.get('confirmation_after')
+    created=payload.get('created_at')
+    return (task.get('kind')=='confirmation' and type(cutoff) is int
+            and type(created) is int and created>cutoff
+            and payload.get('include_photo')==1
+            and not str(payload.get('request_key','')).startswith('courier-followup-'))
+
+
 def run(kind,root,settings):
     api=API(settings['url'],settings['token'])
     journal=root/(kind+'-attempt.json')
@@ -53,7 +63,7 @@ def run(kind,root,settings):
         if kind in ('fde','whatsapp'):
             browser=p.chromium.launch_persistent_context(str(root/(kind+'-profile')),headless=False)
             page=browser.pages[0] if browser.pages else browser.new_page()
-            page.goto(PORTAL_URL if kind=='fde' else 'https://web.whatsapp.com/')
+            page.goto(PORTAL_URL if kind=='fde' else 'https://web.whatsapp.com/',wait_until='domcontentloaded',timeout=90000)
             adapter=FDEBrowser(page) if kind=='fde' else WhatsAppBrowser(page)
             if kind=='fde':report_page=browser.new_page();page.bring_to_front()
         print('Home station running. Keep this window open. Sign in to browser windows if requested.',flush=True)
@@ -61,13 +71,15 @@ def run(kind,root,settings):
             while not stop:
                 try:
                     recover(api,journal)
-                    kinds=('fde','reports') if kind=='fde' else ('whatsapp','confirmation') if kind=='whatsapp' else ('print',)
+                    kinds=('fde','reports') if kind=='fde' else (('confirmation',) if settings.get('confirmation_only') else ('whatsapp','confirmation')) if kind=='whatsapp' else ('print',)
                     for queue in kinds:
                         ready=kind=='print' or adapter.signed_in()
                         task=api.post('poll',{'kind':queue,'ready':ready})['task']
                         if not task:continue
                         def prepare(task):
                             payload=task['payload']
+                            if kind=='whatsapp' and settings.get('confirmation_only') and not new_product_confirmation(task,settings):
+                                raise ValueError('Excluded from new confirmation-only sending.')
                             if queue=='fde':adapter.prepare(payload);adapter.verify(payload)
                             elif queue in ('whatsapp','confirmation'):
                                 if queue=='confirmation' and payload.get('include_photo'):
