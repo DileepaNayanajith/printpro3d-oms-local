@@ -7,7 +7,7 @@ station=root/'instance/mac-station/PRINTPRO3D-station'
 if not python.exists() or not (station/'settings.json').exists():raise SystemExit('Set up and pair the Mac station first.')
 folder=Path.home()/'Library/LaunchAgents';folder.mkdir(parents=True,exist_ok=True)
 path=folder/'lk.printpro3d.station-controller.plist'
-job={'Label':'lk.printpro3d.station-controller','ProgramArguments':[str(python),'-u',str(root/'station_controller.py')],'WorkingDirectory':str(root),'RunAtLoad':True,'KeepAlive':True,'ThrottleInterval':30,'EnvironmentVariables':{'LOCALAPPDATA':str(root/'instance/mac-station'),'PLAYWRIGHT_BROWSERS_PATH':str(root/'instance/browser-binaries')},'StandardOutPath':str(station/'controller.log'),'StandardErrorPath':str(station/'controller.log')}
+job={'Label':'lk.printpro3d.station-controller','ProgramArguments':['/usr/bin/open','-a','Terminal',str(root/'start_mac_controller.command')],'RunAtLoad':True,'StandardOutPath':str(station/'controller-launch.log'),'StandardErrorPath':str(station/'controller-launch.log')}
 path.write_bytes(plistlib.dumps(job));path.chmod(0o600)
 domain='gui/'+str(os.getuid())
 subprocess.run(['launchctl','bootout',domain+'/lk.printpro3d.station-controller'],capture_output=True)
