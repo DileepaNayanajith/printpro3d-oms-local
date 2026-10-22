@@ -1,0 +1,40 @@
+# Coolify Git application: base directory /, Compose location /compose.coolify.yaml
+services:
+  oms:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - '8080'
+    environment:
+      PORT: '8080'
+      OMS_CLOUD: '1'
+      OMS_HTTPS: '1'
+      OMS_INSTANCE_PATH: /data/oms-live
+      OMS_SECRET: ${OMS_SECRET:?Set a private session secret}
+      OMS_OWNER_PASSWORD: ${OMS_OWNER_PASSWORD:-}
+      OMS_SENDER_NAME: ${OMS_SENDER_NAME:-PRINTPRO3D}
+      OMS_SENDER_ADDRESS: ${OMS_SENDER_ADDRESS:-}
+      OMS_SENDER_PHONE: ${OMS_SENDER_PHONE:-}
+      OMS_ENABLE_LIVE_BOOKING: ${OMS_ENABLE_LIVE_BOOKING:-0}
+      OMS_WEBSITE_TOKEN: ${OMS_WEBSITE_TOKEN:-}
+      META_CAPI_ACCESS_TOKEN: ${META_CAPI_ACCESS_TOKEN:-}
+      OMS_SMTP_HOST: ${OMS_SMTP_HOST:-}
+      OMS_SMTP_PORT: ${OMS_SMTP_PORT:-587}
+      OMS_SMTP_USER: ${OMS_SMTP_USER:-}
+      OMS_SMTP_PASSWORD: ${OMS_SMTP_PASSWORD:-}
+      OMS_EMAIL_FROM: ${OMS_EMAIL_FROM:-}
+    volumes:
+      - /srv/printpro3d/oms:/data/oms-live
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
