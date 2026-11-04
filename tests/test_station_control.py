@@ -21,3 +21,26 @@ class ControlTests(RemoteTests):
   self.post('control')
   self.assertEqual(self.client.post('/station',data={'action':'open-fde','csrf':self.csrf}).status_code,302)
   self.assertEqual(self.c.execute('SELECT kind FROM station_controls').fetchone()[0],'fde')
+
+ def test_staff_can_open_browsers_but_not_manage_pairing(self):
+  from manage import add_user
+  for username,role in [('admin01','admin'),('caller01','caller')]:
+   add_user(self.c,username,role,'test-password-long-enough')
+   with self.client.session_transaction() as session:session['username']=username;session['role']=role
+   page=self.client.get('/station')
+   self.assertEqual(page.status_code,200)
+   self.assertIn(b'Open FDE',page.data)
+   self.assertIn(b'Open WhatsApp',page.data)
+   self.post('control')
+   for action in ['open-fde','open-whatsapp']:
+    self.assertEqual(self.client.post('/station',data={'action':action,'csrf':self.csrf}).status_code,302)
+   if role=='caller':
+    self.assertNotIn(b'Create / replace pairing key',page.data)
+    for action in ['pair','revoke']:
+     self.assertEqual(self.client.post('/station',data={'action':action,'csrf':self.csrf}).status_code,403)
+ def test_packer_cannot_launch_browser(self):
+  from manage import add_user
+  add_user(self.c,'packing01','packer','test-password-long-enough')
+  with self.client.session_transaction() as session:session['username']='packing01';session['role']='packer'
+  self.assertEqual(self.client.get('/station').status_code,403)
+  self.assertEqual(self.client.post('/station',data={'action':'open-fde','csrf':self.csrf}).status_code,403)

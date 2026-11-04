@@ -215,9 +215,9 @@ def create_app(config=None):
     @role_required(admin=True)
     def station_settings():
         if not app.config['CLOUD_MODE']:abort(404)
-        if session.get('role')!='admin':abort(403)
         token=None
         if request.method=='POST':
+            if request.form.get('action') in ('pair','revoke') and session.get('role')!='admin':abort(403)
             if request.form.get('action')=='revoke':
                 with db():db().execute('UPDATE home_station SET enabled=0 WHERE id=1')
             elif request.form.get('action') in ('open-fde','open-whatsapp'):
