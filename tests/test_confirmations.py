@@ -53,3 +53,17 @@ class ConfirmationTests(unittest.TestCase):
         rendered=body.replace('• ','').replace('*','')
         self.assertEqual(normalized(body),normalized(rendered))
         self.assertNotEqual(normalized(body),normalized(rendered.replace('1,750','1,500')))
+
+    def test_mochi_product_message_photo_and_validation(self):
+        from oms.confirmations import photo_path
+        self.assertEqual(self.client.post('/confirmations',data=dict(self.data,product='mochi-diy')).status_code,302)
+        row=self.c.execute('SELECT * FROM whatsapp_confirmations').fetchone()
+        self.assertEqual(row['product'],'mochi-diy')
+        self.assertIn('2,800',row['body']);self.assertIn('/products/1022',row['body'])
+        self.assertNotIn('Display Racks',row['body'])
+        browser=Mock();whatsapp.send_one(self.c,browser,'whatsapp_confirmations')
+        self.assertEqual(browser.prepare_photo.call_args.args[2],photo_path('mochi-diy'))
+        self.assertTrue(photo_path('mochi-diy').is_file())
+        self.assertEqual(self.client.post('/confirmations',data=dict(self.data,product='unknown',request_key='b'*24)).status_code,400)
+        self.assertEqual(self.client.post('/confirmations',data=dict(self.data,product='mochi-diy',request_key='c'*24)).status_code,400)
+        self.assertEqual(self.client.post('/confirmations',data=dict(self.data,product='racks',request_key='d'*24)).status_code,302)

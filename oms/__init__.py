@@ -443,12 +443,12 @@ def create_app(config=None):
         error=None
         if request.method=='POST':
             try:
-                mid=confirmations.queue(db(),request.form.get('name',''),request.form.get('phone',''),request.form.get('request_key',''))
+                mid=confirmations.queue(db(),request.form.get('name',''),request.form.get('phone',''),request.form.get('request_key',''),request.form.get('product','racks'))
                 return redirect(url_for('confirmation_desk',sent=mid))
             except ValueError as exc:
                 error=str(exc)
         return render_template('confirmations.html',error=error,sent=request.args.get('sent'),
-            preview=confirmations.message('Customer'),
+            preview=confirmations.message('Customer'),products=confirmations.PRODUCTS,previews={k:confirmations.message('Customer',k) for k in confirmations.PRODUCTS},
             messages=db().execute('SELECT * FROM whatsapp_confirmations ORDER BY id DESC LIMIT 100').fetchall()),400 if error else 200
 
     @app.post('/confirmations/<int:message_id>/retry')

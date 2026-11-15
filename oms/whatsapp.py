@@ -98,8 +98,8 @@ def send_one(conn, browser, table='whatsapp_outbox'):
     # Prepare verifies the recipient and complete draft without sending.
     photo = table=='whatsapp_confirmations' and row['include_photo']
     if photo:
-        from pathlib import Path
-        browser.prepare_photo(row['phone'], row['body'], Path(__file__).parent/'static/products/hot-wheels-rack.png')
+        from .confirmations import photo_path
+        browser.prepare_photo(row['phone'], row['body'], photo_path(dict(row).get('product','racks')))
     else:
         browser.prepare(row['phone'], row['body'])
     with conn:

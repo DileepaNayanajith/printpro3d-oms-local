@@ -7,6 +7,7 @@ import subprocess
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from oms.confirmations import photo_path
 from oms.station_client import API, execute, recover
 from oms import labels, fde_reports
 
@@ -83,7 +84,7 @@ def run(kind,root,settings):
                             if queue=='fde':adapter.prepare(payload);adapter.verify(payload)
                             elif queue in ('whatsapp','confirmation'):
                                 if queue=='confirmation' and payload.get('include_photo'):
-                                    adapter.prepare_photo(payload['phone'],payload['body'],Path(__file__).parent/'oms/static/products/hot-wheels-rack.png')
+                                    adapter.prepare_photo(payload['phone'],payload['body'],photo_path(payload.get('product','racks')))
                                 else:adapter.prepare(payload['phone'],payload['body'])
                             elif queue=='print':
                                 pdf=root/(task['id']+'.pdf')
