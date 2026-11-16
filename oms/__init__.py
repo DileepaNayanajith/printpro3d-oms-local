@@ -507,6 +507,16 @@ def create_app(config=None):
           ORDER BY CASE WHEN p.state='ready' THEN 0 ELSE 1 END,o.id DESC""").fetchall()
         return render_template('labels.html',orders=rows,error=error,queued=request.args.get('queued')),400 if error else 200
 
+    @app.post('/labels/clear-pending')
+    @role_required(admin=True)
+    def clear_pending_labels():
+        if request.form.get('printer_stopped')!='yes':abort(400,'Stop the print worker and cancel the printer queue first.')
+        with db():
+            db().execute('BEGIN IMMEDIATE')
+            db().execute("UPDATE station_tasks SET state='cancelled',updated_at=? WHERE kind='print' AND state IN ('prepared','executing')",(int(time.time()),))
+            db().execute("UPDATE print_jobs SET state='manual',batch_id=NULL,spool_id=NULL,message='Pending print cancelled. Tick to print another copy.' WHERE state IN ('queued','rendering','sending')")
+        return redirect('/labels')
+
     @app.get('/scan/status')
     @role_required()
     def scan_status():

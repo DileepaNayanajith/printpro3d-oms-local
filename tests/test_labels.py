@@ -111,3 +111,11 @@ class LabelFlowTests(unittest.TestCase):
         self.assertEqual(self.post('/scan',{'reference':'PP3D-000001','waybill_number':'17779999'}).status_code,302)
         with self.conn:self.conn.execute("UPDATE orders SET status='booked',tracking='17779999'")
         self.assertEqual(self.post('/orders/1/pack',{}).status_code,302)
+
+    def test_cancel_pending_unlocks_reprint_without_requeue(self):
+        labels.queue_batch(self.conn,[1])
+        self.assertEqual(self.post('/labels/clear-pending',{}).status_code,400)
+        self.assertEqual(self.post('/labels/clear-pending',{'printer_stopped':'yes'}).status_code,302)
+        self.assertEqual(self.conn.execute('SELECT state FROM print_jobs').fetchone()[0],'manual')
+        labels.queue_batch(self.conn,[1])
+        self.assertEqual(self.conn.execute('SELECT state FROM print_jobs').fetchone()[0],'queued')
