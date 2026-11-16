@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import signal
+import sys
 import subprocess
 import time
 from contextlib import contextmanager
@@ -32,6 +33,9 @@ def lock(path):
 
 
 def printer_command(settings,pdf):
+    if sys.platform=='darwin':
+        if not settings.get('printer'):raise ValueError('Choose the HP printer in station setup.')
+        return ['/usr/bin/lp','-d',settings['printer'],'-n','1','-o','media=A4','-o','orientation-requested=4','-o','fit-to-page','-o','sides=one-sided',str(pdf)]
     executable=Path(settings['sumatra'])
     if not executable.is_file():raise ValueError('Install SumatraPDF and run station setup again.')
     if not settings.get('printer'):raise ValueError('Choose the HP printer in station setup.')
